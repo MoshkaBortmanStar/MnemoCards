@@ -867,6 +867,83 @@ def safe_relative_path(raw_path: str) -> Optional[Path]:
     return path
 
 
+def in_linked_worktree() -> bool:
+    """Мы сейчас внутри дочернего worktree, а не в основном рабочем дереве?"""
+    own = git("rev-parse", "--git-dir").stdout.strip()
+    common = git("rev-parse", "--git-common-dir").stdout.strip()
+    if not own or not common:
+        return False
+    return Path(own).resolve() != Path(common).resolve()
+
+
+def uncommitted_outside_specs() -> List[str]:
+    """Незакоммиченные файлы вне specs/ — они НЕ попадут в новый worktree."""
+    result = git("status", "--porcelain")
+    if result.returncode != 0:
+        return []
+    paths = []
+    for line in result.stdout.splitlines():
+        path = line[3:].strip()
+        if path and not path.startswith("specs/"):
+            paths.append(path)
+    return paths
+
+
+def ensure_worktree(change_dir: Path, args: argparse.Namespace,
+                    cfg: Dict) -> None:
+    """Перед кодогеном завести worktree, если у изменения его ещё нет.
+
+    Смысл: кодоген всегда идёт в изоляции, даже если при создании спеки
+    про --worktree забыли. Не срабатывает, если worktree уже есть, если он
+    был и удалён после мерджа, если мы сами внутри дочернего worktree,
+    а также при --here или pipeline.auto_worktree: false.
+    """
+    if getattr(args, "here", False):
+        return
+    if not (cfg.get("pipeline") or {}).get("auto_worktree", True):
+        return
+    if (load_change_meta(change_dir).get("git") or {}).get("worktree"):
+        return  # привязка уже есть (существующая или смердженная)
+    if not is_git_repo():
+        return
+    if git("rev-parse", "HEAD").returncode != 0:
+        warn("В репозитории нет коммитов — worktree не создаётся, "
+             "кодоген пойдёт в текущей директории")
+        return
+    if in_linked_worktree():
+        return  # уже в изоляции, вложенные worktree не плодим
+
+    banner("Worktree для {}".format(change_dir.name))
+    info("У изменения нет своего worktree — создаю (отключить: --here)")
+
+    dirty = uncommitted_outside_specs()
+    if dirty:
+        print()
+        warn("Есть незакоммиченные изменения вне specs/ — в worktree они "
+             "НЕ попадут:")
+        for path in dirty[:5]:
+            print("    {}".format(path))
+        if len(dirty) > 5:
+            print("    ... ещё {}".format(len(dirty) - 5))
+        info("Закоммить их сначала, если они нужны в worktree:")
+        print("    git add -A && git commit -m \"chore: ...\"")
+        if not confirm_continue(args, "Всё равно создать worktree?"):
+            warn("Отменено — кодоген не запущен")
+            raise SystemExit(1)
+
+    setup_worktree(change_dir.name, change_dir)
+
+
+def confirm_continue(args: argparse.Namespace, question: str) -> bool:
+    if getattr(args, "yes", False):
+        return True
+    try:
+        answer = input("\n{} [y/N] ".format(question)).strip().lower()
+    except EOFError:
+        answer = "n"
+    return answer in ("y", "yes", "д", "да")
+
+
 def maybe_delegate_to_worktree(change_dir: Path, args: argparse.Namespace) -> None:
     """Изменение привязано к другому worktree — перезапустить себя там.
 
@@ -911,6 +988,7 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
     change_dir = find_change(args.change)
     artifact = next(a for a in load_schema() if a.id == "code-generation")
     check_requirements(artifact, change_dir.name)
+    ensure_worktree(change_dir, args, cfg)
     maybe_delegate_to_worktree(change_dir, args)
     if args.offline:
         fail("Кодогенерация требует LLM (--offline не поддерживается для этого шага)")
