@@ -22,6 +22,7 @@ import copy
 import datetime
 import json
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -731,7 +732,7 @@ def cmd_new(args: argparse.Namespace, cfg: Dict) -> None:
 
     if getattr(args, "worktree", False):
         print()
-        setup_worktree(change_id, change_dir)
+        setup_worktree(change_id, change_dir, cfg)
 
     print()
     info("Дальше:")
@@ -804,7 +805,31 @@ def commit_spec(change_id: str) -> bool:
     return False
 
 
-def setup_worktree(change_id: str, change_dir: Path) -> None:
+def copy_local_files(target: Path, cfg: Dict) -> None:
+    """Перенести в новый worktree локальные файлы, которых нет в git.
+
+    Такие файлы (local.properties с путём к Android SDK, .env, локальные
+    настройки) лежат в .gitignore, поэтому git их в worktree не переносит —
+    и сборка там падает не из-за кода, а из-за окружения.
+    """
+    names = (cfg.get("pipeline") or {}).get("worktree_copy") or []
+    for rel in names:
+        source = PROJECT_ROOT / rel
+        if not source.exists():
+            continue
+        destination = target / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if source.is_dir():
+                shutil.copytree(source, destination, dirs_exist_ok=True)
+            else:
+                shutil.copy2(source, destination)
+            ok("скопирован в worktree: {}".format(rel))
+        except Exception as exc:  # noqa: BLE001
+            warn("не удалось скопировать {}: {}".format(rel, exc))
+
+
+def setup_worktree(change_id: str, change_dir: Path, cfg: Dict) -> None:
     """Закоммитить спеку и создать worktree с отдельной веткой под изменение."""
     if not is_git_repo():
         warn("Проект не является git-репозиторием — worktree не создан")
@@ -840,6 +865,7 @@ def setup_worktree(change_id: str, change_dir: Path) -> None:
 
     ok("worktree: {}".format(path))
     ok("ветка {} (от {})".format(branch, base_branch or "HEAD"))
+    copy_local_files(path, cfg)
     print()
     info("Работать над изменением там:")
     print("  cd {}".format(path))
@@ -1020,7 +1046,7 @@ def ensure_worktree(change_dir: Path, args: argparse.Namespace,
             warn("Отменено — кодоген не запущен")
             raise SystemExit(1)
 
-    setup_worktree(change_dir.name, change_dir)
+    setup_worktree(change_dir.name, change_dir, cfg)
 
 
 def confirm_continue(args: argparse.Namespace, question: str) -> bool:
@@ -1569,7 +1595,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         # Завести worktree для уже существующего изменения.
         change_dir = find_change(args.change)
         banner("Worktree для {}".format(change_dir.name))
-        setup_worktree(change_dir.name, change_dir)
+        setup_worktree(change_dir.name, change_dir, cfg)
         return 0
     if args.status:
         cmd_status(args)

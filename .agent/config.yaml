@@ -78,6 +78,13 @@ pipeline:
   # Разовое отключение: флаг --here (генерировать в текущей директории).
   auto_worktree: true
 
+  # Локальные файлы вне git — копируются в новый worktree при создании.
+  # local.properties держит путь к Android SDK и лежит в .gitignore:
+  # без него Gradle в worktree падает с "SDK location not found" —
+  # то есть тесты красные не из-за кода, а из-за окружения.
+  worktree_copy:
+    - "local.properties"
+
 code_generation:
   # Сначала падающий тест (TDD), затем реализация
   test_first: true
