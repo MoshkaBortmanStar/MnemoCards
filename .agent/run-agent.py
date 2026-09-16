@@ -141,30 +141,39 @@ proposal.md:
 в код-блоки.""",
 
     "codegen": """\
-Ты — Senior Java Developer. Твоя задача — написать код, строго
-соответствующий спецификации spec-bdd.md и плану tasks.md (переданы ниже).
+Ты — Senior-разработчик, работающий в стеке этого проекта. Твоя задача —
+написать код, строго соответствующий спецификации spec-bdd.md и плану
+tasks.md (переданы ниже).
 
 Контекст проекта:
-{tech_stack}
-{code_style}
-Базовый java-пакет: {base_package}
+Стек: {tech_stack}
+Код-стайл: {code_style}
+Базовый пакет / неймспейс: {base_package}
+Корень исходников: {source_root}
 
 Порядок работы:
-1. Сначала сгенерируй интеграционные тесты (MockMvc + JUnit 5),
-   воспроизводящие сценарии GIVEN-WHEN-THEN из спецификации.
-2. Затем сгенерируй код контроллера/сервиса, чтобы тесты прошли успешно.
+1. Сначала сгенерируй тесты, воспроизводящие сценарии GIVEN-WHEN-THEN
+   из спецификации. Тестовый фреймворк бери из стека проекта.
+2. Затем сгенерируй реализацию, чтобы тесты прошли успешно.
 3. Соблюдай код-стайл проекта. Не сокращай код — выводи файлы целиком.
+
+ВАЖНО: язык, расширения файлов, тестовые библиотеки и структуру каталогов
+определяй ИСКЛЮЧИТЕЛЬНО по стеку проекта, указанному выше. Не переноси
+соглашения из других экосистем и не подставляй язык по умолчанию.
 
 ФОРМАТ ОТВЕТА — строго для каждого файла:
 
-### FILE: <путь/от/корня/проекта/ИмяФайла.java>
-```java
+### FILE: <относительный/путь/Файл.расширение>
+```язык
 <полное содержимое файла>
 ```
 
-Требования к путям: только относительные пути от корня проекта
-(например src/main/java/...). Никаких абсолютных путей. Все завершающие
-комментарии и пояснения вне блоков FILE запрещены.""",
+Вместо "расширение" и "язык" подставь принятые в стеке проекта
+(например .kt и kotlin, .py и python, .ts и typescript).
+
+Требования к путям: только относительные пути от корня проекта, исходники
+клади внутрь "{source_root}" по правилам стека. Никаких абсолютных путей.
+Все завершающие комментарии и пояснения вне блоков FILE запрещены.""",
 }
 
 
@@ -174,9 +183,12 @@ proposal.md:
 
 DEFAULT_CONFIG: Dict = {
     "project_context": {
-        "tech_stack": "Java 17, Spring Boot 3.x, Maven, JUnit 5, MockMvc",
-        "code_style": "Conventional Commits, интерфейсы для контроллеров (API-first)",
-        "base_package": "com.example",
+        # Нейтральные заглушки: если их не переопределить в config.yaml,
+        # модель увидит явный маркер вместо чужого стека.
+        "tech_stack": "НЕ ЗАДАН — укажи tech_stack в .agent/config.yaml",
+        "code_style": "НЕ ЗАДАН — укажи code_style в .agent/config.yaml",
+        "base_package": "app",
+        "source_root": "src",
     },
     "ai_settings": {
         "base_url": "http://localhost:11434/v1",
@@ -628,6 +640,10 @@ def cmd_new(args: argparse.Namespace, cfg: Dict) -> None:
     for artifact_id in ARTIFACT_ORDER:
         generate_artifact(artifact_id, change_dir, prompt, cfg, args.offline)
 
+    if getattr(args, "worktree", False):
+        print()
+        setup_worktree(change_id, change_dir)
+
     print()
     info("Дальше:")
     print("  1. Прочитай и при необходимости поправь файлы в specs/{}".format(change_id))
@@ -649,6 +665,179 @@ def create_git_branch(change_id: str) -> None:
         ok("git-ветка spec/{} создана".format(change_id))
     else:
         warn("Не удалось создать ветку: {}".format(result.stderr.strip()))
+
+
+# ---------------------------------------------------------------------------
+# Git worktree: параллельная работа над разными изменениями
+#
+# Порядок принципиален: номер изменения выдаётся по максимуму существующих
+# папок в specs/, поэтому спека СНАЧАЛА коммитится в основной ветке (номер
+# занят и виден всем), и только потом от этого коммита отпочковывается
+# worktree. Иначе два параллельных worktree выдали бы один и тот же ID.
+# ---------------------------------------------------------------------------
+
+def git(*cmd: str, cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
+    """Запустить git-команду в корне проекта (или в указанной папке)."""
+    return subprocess.run(["git", *cmd], capture_output=True, text=True,
+                          cwd=str(cwd or PROJECT_ROOT))
+
+
+def is_git_repo() -> bool:
+    return git("rev-parse", "--is-inside-work-tree").returncode == 0
+
+
+def git_current_branch() -> str:
+    result = git("rev-parse", "--abbrev-ref", "HEAD")
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def change_number(change_id: str) -> str:
+    """'change-002-slug' -> '002' (или сам id, если формат неожиданный)."""
+    match = re.match(r"change-(\d+)", change_id)
+    return match.group(1) if match else change_id
+
+
+def commit_spec(change_id: str) -> bool:
+    """Закоммитить только папку спеки — чужие staged-файлы не затрагиваются."""
+    rel = "specs/{}".format(change_id)
+    if git("add", "--", rel).returncode != 0:
+        warn("git add {} не удался — worktree не создан".format(rel))
+        return False
+    result = git("commit", "-m", "spec: {}".format(change_id), "--", rel)
+    output = result.stdout + result.stderr
+    if result.returncode == 0:
+        ok("спека закоммичена: spec: {}".format(change_id))
+        return True
+    if "nothing to commit" in output or "no changes added" in output:
+        warn("нечего коммитить — спека уже в истории")
+        return True
+    warn("Не удалось закоммитить спеку: {}".format(output.strip()))
+    return False
+
+
+def setup_worktree(change_id: str, change_dir: Path) -> None:
+    """Закоммитить спеку и создать worktree с отдельной веткой под изменение."""
+    if not is_git_repo():
+        warn("Проект не является git-репозиторием — worktree не создан")
+        return
+    if git("rev-parse", "HEAD").returncode != 0:
+        warn("В репозитории ещё нет коммитов — worktree создать нельзя")
+        return
+
+    base_branch = git_current_branch()
+    slug = change_id[len("change-"):] if change_id.startswith("change-") else change_id
+    branch = "change/{}".format(slug)
+    path = PROJECT_ROOT.parent / "{}-wt-{}".format(PROJECT_ROOT.name,
+                                                   change_number(change_id))
+    if path.exists():
+        warn("Папка {} уже существует — worktree не создан".format(path))
+        return
+
+    # Метаданные пишем ДО коммита, чтобы они уехали в историю вместе со спекой.
+    meta = load_change_meta(change_dir)
+    meta["git"] = {"branch": branch, "worktree": str(path),
+                   "base_branch": base_branch}
+    meta["updated"] = now_str()
+    save_change_meta(change_dir, meta)
+
+    if not commit_spec(change_id):
+        return
+
+    result = git("worktree", "add", str(path), "-b", branch)
+    if result.returncode != 0:
+        warn("Не удалось создать worktree: {}".format(
+            (result.stderr or result.stdout).strip()))
+        return
+
+    ok("worktree: {}".format(path))
+    ok("ветка {} (от {})".format(branch, base_branch or "HEAD"))
+    print()
+    info("Работать над изменением там:")
+    print("  cd {}".format(path))
+    print("  python3 .agent/run-agent.py --codegen --change {} --dry-run"
+          .format(change_number(change_id)))
+
+
+def cmd_worktrees(args: argparse.Namespace) -> None:
+    """--worktrees: какие worktree живы и что из них ещё не смерджено."""
+    if not is_git_repo():
+        fail("Проект не является git-репозиторием")
+
+    meta_by_branch: Dict[str, Dict] = {}
+    for change_dir in list_changes():
+        meta = load_change_meta(change_dir)
+        git_meta = meta.get("git") or {}
+        if git_meta.get("branch"):
+            meta_by_branch[git_meta["branch"]] = {
+                "change_id": meta.get("id", change_dir.name),
+                "base_branch": git_meta.get("base_branch", ""),
+            }
+
+    result = git("worktree", "list", "--porcelain")
+    if result.returncode != 0:
+        fail("git worktree list не отработал: {}".format(result.stderr.strip()))
+
+    entries: List[Dict[str, str]] = []
+    current: Dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            if current:
+                entries.append(current)
+                current = {}
+            continue
+        key, _, value = line.partition(" ")
+        current[key] = value
+    if current:
+        entries.append(current)
+
+    main_path = str(PROJECT_ROOT.resolve())
+    rows = [e for e in entries if e.get("worktree")
+            and str(Path(e["worktree"]).resolve()) != main_path]
+
+    banner("Worktree изменений")
+    if not rows:
+        print("  Дополнительных worktree нет.")
+        print()
+        info("Создать: python .agent/run-agent.py --new \"...\" --worktree")
+        return
+
+    for entry in rows:
+        path = Path(entry["worktree"])
+        branch = entry.get("branch", "").replace("refs/heads/", "") or "(detached)"
+        meta = meta_by_branch.get(branch, {})
+        base = meta.get("base_branch") or git_current_branch()
+
+        print("  {}".format(path.name))
+        print("    изменение : {}".format(meta.get("change_id", "—")))
+        print("    ветка     : {}   (база: {})".format(branch, base or "—"))
+        print("    путь      : {}".format(path))
+        if not path.exists():
+            warn("папка отсутствует — почисти: git worktree prune")
+            print()
+            continue
+
+        dirty = git("status", "--porcelain", cwd=path)
+        if dirty.returncode == 0 and dirty.stdout.strip():
+            warn("незакоммичено файлов: {}".format(
+                len(dirty.stdout.strip().splitlines())))
+
+        if base:
+            log = git("log", "--oneline", "{}..{}".format(base, branch))
+            if log.returncode == 0:
+                commits = [ln for ln in log.stdout.splitlines() if ln.strip()]
+                if commits:
+                    warn("НЕ смерджено в {}: коммитов {}".format(base, len(commits)))
+                    for line in commits[:5]:
+                        print("        {}".format(line))
+                    if len(commits) > 5:
+                        print("        ... ещё {}".format(len(commits) - 5))
+                else:
+                    ok("всё смерджено в {}".format(base))
+        print()
+
+    info("Смерджить и убрать worktree:")
+    print("  git checkout <база> && git merge <ветка>")
+    print("  git worktree remove <путь> && git branch -d <ветка>")
 
 
 # ---------------------------------------------------------------------------
@@ -678,11 +867,51 @@ def safe_relative_path(raw_path: str) -> Optional[Path]:
     return path
 
 
+def maybe_delegate_to_worktree(change_dir: Path, args: argparse.Namespace) -> None:
+    """Изменение привязано к другому worktree — перезапустить себя там.
+
+    Работать можно из общей директории: движок сам находит нужный worktree
+    по секции git в change.yaml и передаёт туда те же аргументы. Дочерний
+    процесс видит PROJECT_ROOT == worktree, поэтому повторной делегации
+    не происходит. Отключается флагом --here.
+    """
+    if getattr(args, "here", False):
+        return
+    git_meta = (load_change_meta(change_dir).get("git") or {})
+    target = git_meta.get("worktree")
+    if not target:
+        return
+    target_path = Path(target)
+    if not target_path.exists():
+        return  # worktree смерджен и удалён — работаем здесь
+    if target_path.resolve() == PROJECT_ROOT.resolve():
+        return  # мы уже там
+
+    script = target_path / ".agent" / "run-agent.py"
+    if not script.exists():
+        warn("В worktree {} нет .agent/run-agent.py — работаю здесь"
+             .format(target_path))
+        return
+
+    info("Изменение привязано к worktree: {} (ветка {})".format(
+        target_path.name, git_meta.get("branch", "—")))
+    info("Перехожу туда и продолжаю там — код запишется в этот worktree.")
+    info("Остаться здесь: добавь флаг --here")
+    print()
+    # Дочерний процесс пишет в тот же поток — сбрасываем буфер, иначе при
+    # перенаправлении вывода наши строки окажутся после его вывода.
+    sys.stdout.flush()
+    result = subprocess.run([sys.executable, str(script), *sys.argv[1:]],
+                            cwd=str(target_path))
+    raise SystemExit(result.returncode)
+
+
 def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
     """--codegen: LLM читает спеку+таски и пишет файлы в проект."""
     change_dir = find_change(args.change)
     artifact = next(a for a in load_schema() if a.id == "code-generation")
     check_requirements(artifact, change_dir.name)
+    maybe_delegate_to_worktree(change_dir, args)
     if args.offline:
         fail("Кодогенерация требует LLM (--offline не поддерживается для этого шага)")
 
@@ -691,7 +920,8 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
     ctx = cfg["project_context"]
     system = SYSTEM_PROMPTS["codegen"].format(
         tech_stack=ctx["tech_stack"], code_style=ctx["code_style"],
-        base_package=ctx.get("base_package", "com.example"))
+        base_package=ctx.get("base_package", "app"),
+        source_root=ctx.get("source_root", "src"))
     main_ctx = main_spec_context()
     sections = []
     if main_ctx:
@@ -703,26 +933,116 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
     banner("Кодогенерация для {}".format(change_dir.name))
     settings = load_llm_settings(cfg)
     info("Модель: {} ({})".format(settings.model, settings.base_url))
-    raw = llm_chat(settings, system, user)
 
-    # Сырой ответ сохраняем для аудита.
-    (change_dir / "codegen-output.md").write_text(raw, encoding="utf-8")
+    batch_size = args.batch if args.batch is not None else \
+        (cfg.get("code_generation") or {}).get("batch_size", 0)
+    task_blocks = split_tasks(tasks) if batch_size and batch_size > 0 else []
 
-    files = parse_files(raw)
-    if not files:
-        fail("LLM не вернул ни одного блока '### FILE:'. "
-             "Сырой ответ: specs/{}/codegen-output.md".format(change_dir.name))
+    if len(task_blocks) > batch_size > 0:
+        written = codegen_batched(change_dir, settings, system, sections,
+                                  task_blocks, batch_size, args)
+    else:
+        if batch_size and batch_size > 0:
+            info("Задач меньше размера батча — генерирую одним запросом")
+        written = codegen_single(change_dir, settings, system, user, args)
 
-    valid, skipped = [], []
-    for item in files:
+    if written is None:
+        return  # dry-run или отмена пользователем
+
+    mark_artifact(change_dir, "code-generation", "generated")
+
+    if args.no_test:
+        print()
+        info("Тесты пропущены (--no-test).")
+        return
+
+    passed = run_tests(cfg)
+    if passed is None:
+        print()
+        warn("Тесты не запускались: задай code_generation.test_command "
+             "в .agent/config.yaml")
+        return
+
+    print()
+    if not passed:
+        info("Почини тесты, затем закоммить изменение:")
+        print("  git add -A && git commit -m \"feat: {}\"".format(change_dir.name))
+        return
+
+    if args.no_commit:
+        info("Коммит пропущен (--no-commit).")
+        return
+    if not in_change_worktree(change_dir):
+        info("Тесты зелёные. Закоммить, когда будешь готов:")
+        print("  git add -A && git commit -m \"feat: {}\"".format(change_dir.name))
+        return
+
+    # Мы внутри worktree изменения и тесты зелёные — коммитим, чтобы
+    # в основном проекте было что мерджить.
+    commit_generated_code(change_dir.name)
+    git_meta = (load_change_meta(change_dir).get("git") or {})
+    print()
+    info("Изменение готово к мерджу. Из основного проекта:")
+    print("  python3 .agent/run-agent.py --worktrees")
+    print("  git merge {}".format(git_meta.get("branch", "<ветка>")))
+
+
+TASK_MARKER_RE = re.compile(r"^-\s*\[[^\]]*\]\s*\*\*T\d+", re.MULTILINE)
+
+
+def split_tasks(tasks_md: str) -> List[str]:
+    """Разбить tasks.md на блоки задач по маркерам '- [ ] **T<N>'."""
+    matches = list(TASK_MARKER_RE.finditer(tasks_md))
+    blocks = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(tasks_md)
+        blocks.append(tasks_md[match.start():end].rstrip())
+    return blocks
+
+
+def collect_files(raw: str, change_dir: Path) -> List[tuple]:
+    """Разобрать ответ LLM в список (относительный путь, содержимое)."""
+    valid = []
+    for item in parse_files(raw):
         rel = safe_relative_path(item["path"])
         if rel is None:
-            skipped.append(item["path"])
+            err("Отклонён небезопасный путь: {}".format(item["path"]))
         else:
             valid.append((rel, item["content"]))
+    return valid
 
-    for bad_path in skipped:
-        err("Отклонён небезопасный путь: {}".format(bad_path))
+
+def write_files(valid: List[tuple]) -> None:
+    for rel, content in valid:
+        target = PROJECT_ROOT / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        ok("записан {}".format(rel))
+
+
+def confirm_write(args: argparse.Namespace) -> bool:
+    if args.yes:
+        return True
+    try:
+        answer = input("\nЗаписать эти файлы? [y/N] ").strip().lower()
+    except EOFError:
+        answer = "n"
+    if answer in ("y", "yes", "д", "да"):
+        return True
+    warn("Отменено пользователем")
+    return False
+
+
+def codegen_single(change_dir: Path, settings: "LLMSettings", system: str,
+                   user: str, args: argparse.Namespace) -> Optional[List[tuple]]:
+    """Кодогенерация одним запросом (историческое поведение)."""
+    raw = llm_chat(settings, system, user)
+    (change_dir / "codegen-output.md").write_text(raw, encoding="utf-8")
+
+    valid = collect_files(raw, change_dir)
+    if not valid:
+        fail("LLM не вернул ни одного блока '### FILE:'. "
+             "Сырой ответ: specs/{}/codegen-output.md".format(change_dir.name))
 
     print()
     info("Файлы к записи ({}):".format(len(valid)))
@@ -731,26 +1051,125 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
 
     if args.dry_run:
         warn("--dry-run: файлы НЕ записаны")
-        return
+        return None
+    if not confirm_write(args):
+        return None
+    write_files(valid)
+    return valid
 
-    if not args.yes:
-        try:
-            answer = input("\nЗаписать эти файлы? [y/N] ").strip().lower()
-        except EOFError:
-            answer = "n"
-        if answer not in ("y", "yes", "д", "да"):
-            warn("Отменено пользователем")
-            return
 
-    for rel, content in valid:
-        target = PROJECT_ROOT / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-        ok("записан {}".format(rel))
+def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
+                    sections: List[str], task_blocks: List[str], batch_size: int,
+                    args: argparse.Namespace) -> Optional[List[tuple]]:
+    """Кодогенерация порциями задач: каждый батч — свой запрос и своя запись.
 
-    mark_artifact(change_dir, "code-generation", "generated")
+    Зачем: план на 10+ задач в один вызов не помещается — модель обрывает
+    файлы на середине или молча пропускает задачи. Здесь каждый шаг получает
+    свои задачи плюс уже сгенерированные файлы как контекст, и результат
+    пишется на диск сразу, не дожидаясь конца.
+    """
+    batches = [task_blocks[i:i + batch_size]
+               for i in range(0, len(task_blocks), batch_size)]
+    info("Задач в плане: {} → батчей по {}: {}".format(
+        len(task_blocks), batch_size, len(batches)))
+
+    if not args.dry_run and not confirm_write(args):
+        return None
+
+    done: Dict[str, str] = {}   # путь -> содержимое (для контекста и отчёта)
+    raw_log: List[str] = []
+
+    for index, batch in enumerate(batches, start=1):
+        print()
+        banner("Батч {}/{}".format(index, len(batches)))
+        for block in batch:
+            print("  {}".format(block.splitlines()[0][:100]))
+
+        parts = list(sections)
+        parts.append("Задачи ЭТОГО шага — реализуй только их:\n---\n{}\n---"
+                     .format("\n\n".join(batch)))
+        if done:
+            listing = "\n".join("- {}".format(p) for p in sorted(done))
+            parts.append(
+                "Уже созданные файлы (не дублируй; выводи повторно только если "
+                "задача требует их изменить):\n{}".format(listing))
+            parts.append("Содержимое уже созданных файлов:\n{}".format(
+                "\n\n".join("### FILE: {}\n```\n{}\n```".format(p, c)
+                            for p, c in sorted(done.items()))))
+
+        raw = llm_chat(settings, system, "\n\n".join(parts))
+        raw_log.append("## Батч {}/{}\n\n{}".format(index, len(batches), raw))
+
+        valid = collect_files(raw, change_dir)
+        if not valid:
+            warn("Батч {} не вернул ни одного файла — пропускаю".format(index))
+            continue
+
+        for rel, content in valid:
+            done[rel] = content
+        print()
+        info("Файлы батча ({}):".format(len(valid)))
+        for rel, _ in valid:
+            print("  - {}".format(rel))
+        if args.dry_run:
+            warn("--dry-run: не записаны")
+        else:
+            write_files(valid)
+
+    (change_dir / "codegen-output.md").write_text(
+        "\n\n---\n\n".join(raw_log), encoding="utf-8")
+
+    if not done:
+        fail("Ни один батч не вернул файлов. "
+             "Сырой ответ: specs/{}/codegen-output.md".format(change_dir.name))
+
     print()
-    info("Готово. Проверь код и запусти тесты, например: mvn test")
+    info("Всего файлов: {}".format(len(done)))
+    if args.dry_run:
+        warn("--dry-run: файлы НЕ записаны")
+        return None
+    return sorted(done.items())
+
+
+def in_change_worktree(change_dir: Path) -> bool:
+    """Мы сейчас в том самом worktree, к которому привязано изменение?"""
+    target = (load_change_meta(change_dir).get("git") or {}).get("worktree")
+    if not target:
+        return False
+    return Path(target).resolve() == PROJECT_ROOT.resolve()
+
+
+def run_tests(cfg: Dict) -> Optional[bool]:
+    """Прогнать тесты проекта. None — команда не задана, иначе результат."""
+    command = (cfg.get("code_generation") or {}).get("test_command")
+    if not command:
+        return None
+    print()
+    banner("Тесты: {}".format(command))
+    result = subprocess.run(command, shell=True, cwd=str(PROJECT_ROOT))
+    if result.returncode == 0:
+        ok("тесты зелёные")
+        return True
+    warn("тесты упали (код возврата {})".format(result.returncode))
+    return False
+
+
+def commit_generated_code(change_id: str) -> None:
+    """Закоммитить сгенерированный код в ветке worktree."""
+    if not is_git_repo():
+        warn("Не git-репозиторий — коммит пропущен")
+        return
+    if git("add", "-A").returncode != 0:
+        warn("git add не удался — коммит пропущен")
+        return
+    result = git("commit", "-m", "feat: {}".format(change_id))
+    output = result.stdout + result.stderr
+    if result.returncode == 0:
+        ok("закоммичено: feat: {}".format(change_id))
+    elif "nothing to commit" in output:
+        warn("нечего коммитить — рабочее дерево чистое")
+    else:
+        warn("коммит не удался: {}".format(output.strip()))
 
 
 # ---------------------------------------------------------------------------
@@ -863,6 +1282,10 @@ def build_parser() -> argparse.ArgumentParser:
   python .agent/run-agent.py --status --change 1
   python .agent/run-agent.py --spec --change 1            # перегенерировать спеку
   python .agent/run-agent.py --codegen --change 1 --dry-run
+
+Параллельная работа (worktree):
+  python .agent/run-agent.py --new "вторая фича" --worktree
+  python .agent/run-agent.py --worktrees                  # что ещё не смерджено
 """)
     parser.add_argument("--main", metavar="PROMPT",
                         help="сгенерировать/обновить мейн-спеку проекта "
@@ -895,6 +1318,26 @@ def build_parser() -> argparse.ArgumentParser:
                              "host + ключ + модель одним флагом")
     parser.add_argument("--branch", action="store_true",
                         help="(--new) создать git-ветку spec/<change-id>")
+    parser.add_argument("--worktree", action="store_true",
+                        help="закоммитить спеку и создать отдельный git worktree "
+                             "с веткой change/<NNN-slug> — для параллельной "
+                             "работы. С --new: сразу при создании изменения. "
+                             "С --change <ID>: для уже существующего")
+    parser.add_argument("--worktrees", action="store_true",
+                        help="список worktree изменений: ветка, база и что "
+                             "из них ещё не смерджено")
+    parser.add_argument("--here", action="store_true",
+                        help="(codegen) не переходить в worktree изменения — "
+                             "работать в текущей директории")
+    parser.add_argument("--batch", metavar="N", type=int,
+                        help="(codegen) генерировать порциями по N задач из "
+                             "tasks.md вместо одного большого запроса "
+                             "(переопределяет code_generation.batch_size)")
+    parser.add_argument("--no-test", action="store_true",
+                        help="(codegen) не запускать тесты после записи файлов")
+    parser.add_argument("--no-commit", action="store_true",
+                        help="(codegen) не коммитить автоматически, даже если "
+                             "тесты прошли")
     parser.add_argument("--init", action="store_true",
                         help="развернуть структуру .agent/ в этом проекте")
     return parser
@@ -925,6 +1368,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
     if args.list:
         cmd_list(args)
+        return 0
+    if args.worktrees:
+        cmd_worktrees(args)
+        return 0
+    if args.worktree and args.change and not args.new:
+        # Завести worktree для уже существующего изменения.
+        change_dir = find_change(args.change)
+        banner("Worktree для {}".format(change_dir.name))
+        setup_worktree(change_dir.name, change_dir)
         return 0
     if args.status:
         cmd_status(args)
