@@ -9,9 +9,13 @@ prompt: 'Экран тренировки: показывает лицевую с
   эндпоинтов и OpenAPI-контракта тут нет, сценарии описывай в терминах действий пользователя
   и состояний экрана.'
 created: 2026-09-16 15:51
-updated: 2026-09-16 15:56
+updated: 2026-09-16 16:44
 mode: llm
 status:
   proposal: generated
   spec-bdd: generated
   tasks: generated
+git:
+  branch: change/001-ekran-trenirovki-pokazyvaet
+  worktree: /Users/mikhailbutorin/AndroidStudioProjects/MnemoCards-wt-001
+  base_branch: feature/feature-001
