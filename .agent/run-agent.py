@@ -24,6 +24,7 @@ import json
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -160,6 +161,14 @@ tasks.md (переданы ниже).
 ВАЖНО: язык, расширения файлов, тестовые библиотеки и структуру каталогов
 определяй ИСКЛЮЧИТЕЛЬНО по стеку проекта, указанному выше. Не переноси
 соглашения из других экосистем и не подставляй язык по умолчанию.
+
+ЗАВИСИМОСТИ. Ниже переданы файлы сборки проекта с их актуальным содержимым.
+Если задача требует библиотеку, которой там нет, — добавь её сам: выведи
+изменённый файл сборки ЦЕЛИКОМ отдельным блоком ### FILE, наравне с кодом.
+Версию объявляй тем же механизмом, который уже используется в этом проекте
+(каталог версий, properties, dependencyManagement) — не хардкодь версию
+в месте подключения, если рядом так не делают. Не добавляй библиотеки,
+которых задача не требует.
 
 ФОРМАТ ОТВЕТА — строго для каждого файла:
 
@@ -314,6 +323,7 @@ class LLMSettings:
     timeout: int
     api_key: Optional[str]
     verify_ssl: bool
+    stream: bool = True
 
 
 def load_llm_settings(cfg: Dict) -> LLMSettings:
@@ -330,10 +340,78 @@ def load_llm_settings(cfg: Dict) -> LLMSettings:
         timeout=int(ai.get("timeout_seconds", 180)),
         api_key=api_key,
         verify_ssl=bool(ai.get("verify_ssl", True)),
+        stream=bool(ai.get("stream", True)),
     )
 
 
-def llm_chat(settings: LLMSettings, system: str, user: str) -> str:
+FILE_HEADER_RE = re.compile(r"###\s*FILE:\s*([^\s`\n]+)")
+
+
+def _stream_response(requests, url, headers, payload, settings,
+                     progress: bool) -> str:
+    """Потоковый запрос: собираем ответ по кускам, попутно показывая прогресс.
+
+    Стриминг тут не ради красоты: при обычном запросе timeout применяется к
+    ожиданию ВСЕГО ответа, и длинная генерация рвётся по таймауту. В потоке
+    таймаут считается между кусками, поэтому долгий ответ не обрывается.
+    """
+    payload = dict(payload, stream=True)
+    pieces: List[str] = []
+    seen_files = set()
+    scanned = 0
+    thinking_ticks = 0
+    started = time.time()
+
+    with requests.post(url, json=payload, headers=headers,
+                       timeout=settings.timeout, verify=settings.verify_ssl,
+                       stream=True) as response:
+        response.raise_for_status()
+        for raw in response.iter_lines(decode_unicode=True):
+            if not raw or not raw.startswith("data:"):
+                continue
+            data = raw[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                delta = json.loads(data)["choices"][0].get("delta") or {}
+            except Exception:  # noqa: BLE001 — битый кусок просто пропускаем
+                continue
+
+            piece = delta.get("content") or ""
+            if not piece:
+                # Думающие модели сначала шлют reasoning_content — показываем,
+                # что процесс идёт, а не завис.
+                if delta.get("reasoning_content") and progress:
+                    thinking_ticks += 1
+                    if thinking_ticks % 25 == 0:
+                        print(".", end="", flush=True)
+                continue
+
+            pieces.append(piece)
+            if progress:
+                text = "".join(pieces)
+                end = text.rfind("\n")
+                if end > scanned:
+                    for match in FILE_HEADER_RE.finditer(text, scanned, end):
+                        path = match.group(1).strip()
+                        if path not in seen_files:
+                            seen_files.add(path)
+                            if thinking_ticks:
+                                print()
+                                thinking_ticks = 0
+                            ok("[{:>3.0f}с] {}".format(time.time() - started, path))
+                    scanned = end
+
+    if progress:
+        if thinking_ticks:
+            print()
+        info("ответ получен за {:.0f}с, файлов: {}".format(
+            time.time() - started, len(seen_files)))
+    return "".join(pieces)
+
+
+def llm_chat(settings: LLMSettings, system: str, user: str,
+             progress: bool = False) -> str:
     """Один запрос к /chat/completions с ретраями. Возвращает текст ответа."""
     try:
         import requests
@@ -358,17 +436,28 @@ def llm_chat(settings: LLMSettings, system: str, user: str) -> str:
     }
 
     last_error = None
+    use_stream = settings.stream
     for attempt in range(1, 4):  # 3 попытки
         try:
-            response = requests.post(url, json=payload, headers=headers,
-                                     timeout=settings.timeout,
-                                     verify=settings.verify_ssl)
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
+            if use_stream:
+                content = _stream_response(requests, url, headers, payload,
+                                           settings, progress)
+                if not content.strip():
+                    raise RuntimeError("пустой ответ в потоковом режиме")
+            else:
+                response = requests.post(url, json=payload, headers=headers,
+                                         timeout=settings.timeout,
+                                         verify=settings.verify_ssl)
+                response.raise_for_status()
+                content = response.json()["choices"][0]["message"]["content"]
             return clean_llm_output(content)
         except Exception as exc:  # noqa: BLE001 — показываем пользователю любую
             last_error = exc
             warn("Попытка {} из 3 не удалась: {}".format(attempt, exc))
+            if use_stream:
+                # Провайдер может не поддерживать stream — пробуем обычный режим.
+                warn("Повтор без стриминга")
+                use_stream = False
     fail("LLM недоступна ({}). Проверь base_url/model в .agent/config.yaml "
          "или используй --offline".format(last_error))
     return ""  # unreachable
@@ -1006,6 +1095,9 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
         sections.append(main_ctx)
     sections.append("Спецификация spec-bdd.md:\n---\n{}\n---".format(spec.rstrip()))
     sections.append("План tasks.md:\n---\n{}\n---".format(tasks.rstrip()))
+    build_ctx = build_files_context(cfg)
+    if build_ctx:
+        sections.append(build_ctx)
     user = "\n\n".join(sections)
 
     banner("Кодогенерация для {}".format(change_dir.name))
@@ -1065,6 +1157,28 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
     print("  git merge {}".format(git_meta.get("branch", "<ветка>")))
 
 
+def build_files_context(cfg: Dict) -> str:
+    """Файлы сборки проекта — чтобы модель могла дописать в них зависимости."""
+    paths = (cfg.get("code_generation") or {}).get("dependency_files") or []
+    blocks, missing = [], []
+    for rel in paths:
+        path = PROJECT_ROOT / rel
+        if not path.is_file():
+            missing.append(rel)
+            continue
+        blocks.append("### FILE: {}\n```\n{}\n```".format(
+            rel, path.read_text(encoding="utf-8").rstrip()))
+    for rel in missing:
+        warn("dependency_files: {} не найден — пропущен".format(rel))
+    if not blocks:
+        return ""
+    info("Файлы сборки в контексте: {}".format(
+        ", ".join(p for p in paths if (PROJECT_ROOT / p).is_file())))
+    return ("Файлы сборки проекта (актуальное содержимое). Если нужной "
+            "библиотеки здесь нет — добавь и выведи файл целиком:\n\n"
+            + "\n\n".join(blocks))
+
+
 TASK_MARKER_RE = re.compile(r"^-\s*\[[^\]]*\]\s*\*\*T\d+", re.MULTILINE)
 
 
@@ -1114,7 +1228,8 @@ def confirm_write(args: argparse.Namespace) -> bool:
 def codegen_single(change_dir: Path, settings: "LLMSettings", system: str,
                    user: str, args: argparse.Namespace) -> Optional[List[tuple]]:
     """Кодогенерация одним запросом (историческое поведение)."""
-    raw = llm_chat(settings, system, user)
+    info("Генерирую (файлы появятся ниже по мере готовности)...")
+    raw = llm_chat(settings, system, user, progress=True)
     (change_dir / "codegen-output.md").write_text(raw, encoding="utf-8")
 
     valid = collect_files(raw, change_dir)
@@ -1175,7 +1290,7 @@ def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
                 "\n\n".join("### FILE: {}\n```\n{}\n```".format(p, c)
                             for p, c in sorted(done.items()))))
 
-        raw = llm_chat(settings, system, "\n\n".join(parts))
+        raw = llm_chat(settings, system, "\n\n".join(parts), progress=True)
         raw_log.append("## Батч {}/{}\n\n{}".format(index, len(batches), raw))
 
         valid = collect_files(raw, change_dir)
