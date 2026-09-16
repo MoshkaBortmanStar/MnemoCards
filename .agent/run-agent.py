@@ -325,6 +325,7 @@ class LLMSettings:
     api_key: Optional[str]
     verify_ssl: bool
     stream: bool = True
+    extra: Dict = field(default_factory=dict)
 
 
 def load_llm_settings(cfg: Dict) -> LLMSettings:
@@ -342,6 +343,7 @@ def load_llm_settings(cfg: Dict) -> LLMSettings:
         api_key=api_key,
         verify_ssl=bool(ai.get("verify_ssl", True)),
         stream=bool(ai.get("stream", True)),
+        extra=dict(ai.get("extra_params") or {}),
     )
 
 
@@ -435,6 +437,13 @@ def llm_chat(settings: LLMSettings, system: str, user: str,
             {"role": "user", "content": user},
         ],
     }
+    # Произвольные параметры провайдера из config.yaml → в тело запроса как
+    # есть. Так новые опции (thinking, top_p, reasoning_effort и прочее)
+    # добавляются правкой конфига, без изменения движка.
+    if settings.extra:
+        payload.update(settings.extra)
+        info("Доп. параметры запроса: {}".format(
+            ", ".join(sorted(settings.extra))))
 
     last_error = None
     use_stream = settings.stream
@@ -450,7 +459,15 @@ def llm_chat(settings: LLMSettings, system: str, user: str,
                                          timeout=settings.timeout,
                                          verify=settings.verify_ssl)
                 response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
+                body = response.json()["choices"][0]
+                content = body["message"].get("content") or ""
+                if not content.strip():
+                    # Думающая модель могла израсходовать весь max_tokens на
+                    # reasoning_content и не дойти до ответа.
+                    raise RuntimeError(
+                        "пустой ответ (finish_reason={}) — вероятно, весь "
+                        "max_tokens ушёл на размышления"
+                        .format(body.get("finish_reason")))
             return clean_llm_output(content)
         except Exception as exc:  # noqa: BLE001 — показываем пользователю любую
             last_error = exc
@@ -1416,8 +1433,23 @@ def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
 
         valid = collect_files(raw, change_dir)
         if not valid:
-            warn("Батч {} не вернул ни одного файла — пропускаю".format(index))
-            continue
+            # Дальше идти нельзя: следующие батчи опираются на код этого.
+            # Прогресс остался на предыдущем батче — повторный запуск
+            # продолжит именно отсюда, а не проскочит дырку.
+            (change_dir / "codegen-output.md").write_text(
+                "\n\n---\n\n".join(raw_log), encoding="utf-8")
+            err("Батч {} не вернул ни одного файла.".format(index))
+            print()
+            info("Частая причина: модель израсходовала max_tokens на "
+                 "размышления и не дошла до ответа.")
+            print("  - подними max_tokens в .agent/config.yaml")
+            print("  - или отключи размышления: ai_settings.extra_params")
+            print("  - или уменьши размер батча: --batch 2")
+            print()
+            info("Прогресс сохранён на батче {}. Повторный запуск "
+                 "продолжит с батча {}.".format(index - 1, index))
+            fail("Кодогенерация остановлена. Сырой ответ: "
+                 "specs/{}/codegen-output.md".format(change_dir.name))
 
         for rel, content in valid:
             done[str(rel)] = content   # строкой: путь уходит в change.yaml
