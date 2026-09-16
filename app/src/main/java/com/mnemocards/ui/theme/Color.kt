@@ -17,3 +17,4 @@ val Red        = Color(0xFFF87171)  // error — ошибка, "забыл"
 // Текст
 val TextMain   = Color(0xFFE7E3F0)  // основной
 val TextMuted  = Color(0xFF9B93B0)  // приглушённый, подписи
+val Turquoise  = Color(0xFF5EEAD4)

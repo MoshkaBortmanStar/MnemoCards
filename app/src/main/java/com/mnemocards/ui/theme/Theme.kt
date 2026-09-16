@@ -19,7 +19,7 @@ private val MnemoColorScheme = darkColorScheme(
     surface = Surface1,
     onSurface = TextMain,
     surfaceVariant = Surface2,
-    onSurfaceVariant = TextMuted,
+    onSurfaceVariant = Turquoise,
     outline = Outline
 )
 
