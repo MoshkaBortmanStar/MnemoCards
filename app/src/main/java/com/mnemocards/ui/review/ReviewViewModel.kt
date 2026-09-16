@@ -1,66 +1,116 @@
 package com.mnemocards.ui.review
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
-import com.mnemocards.data.HardcodedDeck
-import com.mnemocards.domain.model.Grade
+import androidx.lifecycle.viewModelScope
+import com.mnemocards.domain.repository.DeckRepository
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.launch
 
 /**
- * ViewModel экрана тренировки (MVVM + UDF): владеет состоянием сессии,
- * принимает события `onCardTap` / `onRate` и эмитит `StateFlow<ReviewUiState>`.
+ * ViewModel сессии повторения `cards.review` (T11, change `add-offline-storage`).
  *
- * Состояние хранится в поле ViewModel — переживает пересоздание Activity
- * при смене конфигурации (S9).
+ * Захардкоженная колода удалена: карточки читаются из Room через
+ * [DeckRepository] по идентификатору выбранной колоды ([deckId] приходит
+ * из аргумента маршрута через [SavedStateHandle] и переживает пересоздание).
+ *
+ * MVVM + UDF: события текут вверх (публичные методы), состояние — вниз
+ * ([uiState] через StateFlow); событие навигации «назад» — однонаправленное
+ * ([navigateBack]).
  */
-class ReviewViewModel : ViewModel() {
+class ReviewViewModel(
+    savedStateHandle: SavedStateHandle,
+    private val repository: DeckRepository,
+) : ViewModel() {
 
-    private val _state = MutableStateFlow(ReviewUiState())
+    /** Идентификатор выбранной колоды (аргумент маршрута `review/{deckId}`). */
+    val deckId: Long = checkNotNull(savedStateHandle[DECK_ID_KEY])
 
-    val state: StateFlow<ReviewUiState> = _state.asStateFlow()
+    private val _uiState = MutableStateFlow<ReviewUiState>(ReviewUiState.Loading)
+    val uiState: StateFlow<ReviewUiState> = _uiState.asStateFlow()
 
-    /**
-     * Тап по карточке: переворот только из состояния «лицо» (S2).
-     *
-     * Guard-условия:
-     * - повторный тап по перевёрнутой карточке состояние не меняет (S4);
-     * - в состоянии finished событие игнорируется (S8).
-     */
-    fun onCardTap() {
-        _state.update { current ->
-            if (!current.isFlipped && !current.isFinished) {
-                current.copy(isFlipped = true)
+    private val _navigateBack = Channel<Unit>(Channel.BUFFERED)
+    val navigateBack: Flow<Unit> = _navigateBack.receiveAsFlow()
+
+    private var cards: List<Pair<String, String>> = emptyList()
+    private var index: Int = 0
+    private var flipped: Boolean = false
+
+    init {
+        loadCards()
+    }
+
+    private fun loadCards() {
+        viewModelScope.launch {
+            val result = runCatching {
+                repository.observeCards(deckId).first()
+            }.flatten()
+
+            val loaded = result.getOrDefault(emptyList())
+            if (result.isFailure || loaded.isEmpty()) {
+                // S8: устаревший элемент списка — колоды/карточек в БД нет.
+                _uiState.value = ReviewUiState.NotFound
+                _navigateBack.trySend(Unit)
             } else {
-                current
+                cards = loaded.map { it.front to it.back }
+                index = 0
+                flipped = false
+                publishSession()
             }
         }
     }
 
-    /**
-     * Оценка ответа: только по перевёрнутой карточке (S2, S5) и только пока
-     * сессия не завершена (S8). Индекс +1, сторона сбрасывается на «лицо» (S5),
-     * после последней карточки `isFinished = true` (S7).
-     *
-     * Guard-условие `isFlipped` делает повторный вызов `onRate` для той же
-     * карточки (double-tap) no-op'ом — переход выполняется ровно один (S12).
-     *
-     * S6: все четыре оценки эквивалентны — параметр `grade` намеренно ни на что
-     * не влияет, SRS-планирование вне скоупа фичи.
-     */
-    fun onRate(grade: Grade) {
-        _state.update { current ->
-            if (current.isFlipped && !current.isFinished) {
-                val nextIndex = current.cardIndex + 1
-                current.copy(
-                    cardIndex = nextIndex,
-                    isFlipped = false,
-                    isFinished = nextIndex >= HardcodedDeck.cards.size,
-                )
-            } else {
-                current
-            }
+    /** Переворот карточки по тапу. */
+    fun onFlip() {
+        if (_uiState.value is ReviewUiState.Session && !flipped) {
+            flipped = true
+            publishSession()
         }
+    }
+
+    /**
+     * Оценка ответа: четыре оценки эквивалентны — каждая завершает текущую
+     * карточку и переходит к следующей либо к терминальному экрану.
+     */
+    fun onGrade(grade: ReviewGrade) {
+        if (_uiState.value !is ReviewUiState.Session) return
+        flipped = false
+        if (index == cards.lastIndex) {
+            _uiState.value = ReviewUiState.Finished
+        } else {
+            index += 1
+            publishSession()
+        }
+    }
+
+    /** Кнопка «назад»: запрос возврата к списку колод (S6). */
+    fun onBack() {
+        _navigateBack.trySend(Unit)
+    }
+
+    private fun publishSession() {
+        val (front, back) = cards[index]
+        _uiState.value = ReviewUiState.Session(
+            front = front,
+            back = back,
+            flipped = flipped,
+            position = index + 1,
+            total = cards.size,
+        )
+    }
+
+    private companion object {
+        const val DECK_ID_KEY = "deckId"
     }
 }
+
+/** Разворачивает вложенный Result (Flow<Result<T>> → first) в один Result<T>. */
+private fun <T> Result<Result<T>>.flatten(): Result<T> =
+    fold({ it }, { Result.failure(it) })
