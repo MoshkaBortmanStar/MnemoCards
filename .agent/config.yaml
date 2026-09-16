@@ -1,0 +1,55 @@
+# ============================================================
+# OpenSpec Change Driver — глобальные настройки проекта
+# ============================================================
+
+project_context:
+  code_style: "Conventional Commits, MVVM, UDF-однонаправленный поток данных"
+  tech_stack: "Kotlin, Android SDK, Jetpack Compose, Room (офлайн-кэш), Retrofit + OkHttp, Coroutines/Flow, JUnit + MockWebServer"
+  base_package: "com.mnemocards"
+
+ai_settings:
+  # Z.AI Coding Plan (OpenAI-совместимый API).
+  # ВАЖНО: у Coding Plan свой endpoint — /api/coding/paas/v4.
+  # Обычный /api/paas/v4 — это pay-as-you-go, ключ подписки там не работает.
+  base_url: "https://api.z.ai/api/coding/paas/v4"
+  model: "glm-5.3"
+  temperature: 0.2
+  max_tokens: 30000
+  timeout_seconds: 300
+
+  # Ключ только через переменную окружения — в файл не класть:
+  #   export ZAI_API_KEY="..."
+  api_key_env: "ZAI_API_KEY"
+
+  verify_ssl: true
+
+# ============================================================
+# Профили провайдеров: переключение по --profile <name>
+# (host + key + model одним флагом; переопределяют ai_settings выше)
+# ============================================================
+profiles:
+  work:                                  # AlfaGen из корпоративной сети
+    base_url: "https://alfagen.moscow.alfaintra.net/continue-dev"
+    model: "DeepSeek-V4-Flash"
+    api_key: "75c482a5-1fa6-47a3-b19b-dbd5c62f8a72"
+    api_key_env: "ALFAGEN_API_KEY"
+    verify_ssl: false
+
+  glm:                                   # Z.AI Coding Plan (основной профиль)
+    base_url: "https://api.z.ai/api/coding/paas/v4"
+    model: "glm-5.3"
+    api_key_env: "ZAI_API_KEY"
+    verify_ssl: true
+
+  home:                                  # локальная Ollama (дома, без сети)
+    base_url: "http://localhost:11434/v1"
+    model: "qwen2.5-coder:7b"
+    verify_ssl: true
+
+pipeline:
+  # Создавать ли отдельную git-ветку spec/<change-id> при команде --new
+  isolate_git_branch: false
+
+code_generation:
+  # Сначала падающий тест (TDD), затем реализация
+  test_first: true

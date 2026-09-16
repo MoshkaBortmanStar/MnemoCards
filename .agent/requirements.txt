@@ -1,0 +1,4 @@
+# Зависимости OpenSpec Change Driver
+# Установка: pip install -r .agent/requirements.txt
+pyyaml>=6.0
+requests>=2.28
