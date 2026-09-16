@@ -1120,11 +1120,13 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
     if main_ctx:
         sections.append(main_ctx)
     sections.append("Спецификация spec-bdd.md:\n---\n{}\n---".format(spec.rstrip()))
-    sections.append("План tasks.md:\n---\n{}\n---".format(tasks.rstrip()))
     build_ctx = build_files_context(cfg)
     if build_ctx:
         sections.append(build_ctx)
-    user = "\n\n".join(sections)
+    # Полный план нужен только одиночному запросу: в батчах вместо него идут
+    # заголовки задач (план целиком) плюс полный текст задач своего шага.
+    user = "\n\n".join(sections
+                       + ["План tasks.md:\n---\n{}\n---".format(tasks.rstrip())])
 
     banner("Кодогенерация для {}".format(change_dir.name))
     settings = load_llm_settings(cfg)
@@ -1277,6 +1279,82 @@ def codegen_single(change_dir: Path, settings: "LLMSettings", system: str,
     return valid
 
 
+# Бюджет на содержимое уже созданных файлов в промпте батча. Без него
+# контекст растёт квадратично: к последнему батчу тянем всё написанное.
+CONTEXT_CHAR_BUDGET = 24000
+
+
+def generated_context(done: Dict[str, str]) -> str:
+    """Контекст созданных файлов: пути всегда, содержимое — в пределах бюджета.
+
+    Свежие файлы важнее старых: их сигнатуры нужны прямо сейчас. Поэтому
+    содержимое включаем с конца, пока не упрёмся в бюджет; остальное
+    остаётся в списке путей, чтобы модель знала об их существовании.
+    """
+    paths = list(done)
+    listing = "\n".join("- {}".format(p) for p in sorted(paths))
+    parts = ["Уже созданные файлы (не дублируй; выводи повторно только если "
+             "задача требует их изменить):\n{}".format(listing)]
+
+    included, budget = [], CONTEXT_CHAR_BUDGET
+    for path in reversed(paths):          # словарь хранит порядок вставки
+        content = done[path]
+        if len(content) > budget:
+            continue
+        budget -= len(content)
+        included.append(path)
+
+    if included:
+        parts.append("Содержимое (самые свежие файлы):\n{}".format(
+            "\n\n".join("### FILE: {}\n```\n{}\n```".format(p, done[p])
+                        for p in included)))
+    skipped = len(paths) - len(included)
+    if skipped:
+        parts.append("Содержимое ещё {} файлов не приложено — если понадобится "
+                     "их изменить, опиши изменение целиком по пути."
+                     .format(skipped))
+    return "\n\n".join(parts)
+
+
+def load_codegen_progress(change_dir: Path, batch_size: int,
+                          task_count: int) -> tuple:
+    """Прогресс прошлого запуска: (сколько батчей готово, карта файлов).
+
+    Прогресс годен, только если план и размер батча не менялись — иначе
+    границы батчей сместятся и продолжать будет нечего.
+    """
+    meta = (load_change_meta(change_dir).get("codegen") or {})
+    if (meta.get("batch_size") != batch_size
+            or meta.get("task_count") != task_count):
+        return 0, {}
+    done_batches = int(meta.get("done_batches") or 0)
+    if done_batches <= 0:
+        return 0, {}
+
+    files: Dict[str, str] = {}
+    for rel in meta.get("files") or []:
+        path = PROJECT_ROOT / rel
+        if not path.is_file():
+            warn("файл из прошлого запуска пропал: {} — начинаю заново"
+                 .format(rel))
+            return 0, {}
+        files[rel] = path.read_text(encoding="utf-8")
+    return done_batches, files
+
+
+def save_codegen_progress(change_dir: Path, batch_size: int, task_count: int,
+                          done_batches: int, files: List[str]) -> None:
+    meta = load_change_meta(change_dir)
+    meta["codegen"] = {
+        "batch_size": batch_size,
+        "task_count": task_count,
+        "done_batches": done_batches,
+        "files": files,
+    }
+    meta["updated"] = now_str()
+    save_change_meta(change_dir, meta)
+
+
 def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
                     sections: List[str], task_blocks: List[str], batch_size: int,
                     args: argparse.Namespace) -> Optional[List[tuple]]:
@@ -1292,29 +1370,46 @@ def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
     info("Задач в плане: {} → батчей по {}: {}".format(
         len(task_blocks), batch_size, len(batches)))
 
+    plan_outline = "Полный план (заголовки задач):\n{}".format(
+        "\n".join(block.splitlines()[0].strip() for block in task_blocks))
+
+    # Прогресс прошлого запуска: пропускаем уже сделанные батчи, а контекст
+    # для них поднимаем с диска — файлы там уже лежат.
+    done: Dict[str, str] = {}
+    start_index = 0
+    if not args.dry_run and not getattr(args, "fresh", False):
+        start_index, done = load_codegen_progress(change_dir, batch_size,
+                                                  len(task_blocks))
+        if start_index >= len(batches):
+            # Все батчи уже отработали — продолжать нечего, это повторный
+            # прогон по тому же плану.
+            warn("Прошлый запуск отработал план целиком — генерирую заново")
+            start_index, done = 0, {}
+        elif start_index:
+            info("Найден прогресс прошлого запуска: батчей готово {} из {}"
+                 .format(start_index, len(batches)))
+            info("Начинаю с батча {}. Всё заново: флаг --fresh"
+                 .format(start_index + 1))
+
     if not args.dry_run and not confirm_write(args):
         return None
 
-    done: Dict[str, str] = {}   # путь -> содержимое (для контекста и отчёта)
     raw_log: List[str] = []
 
     for index, batch in enumerate(batches, start=1):
+        if index <= start_index:
+            continue
         print()
         banner("Батч {}/{}".format(index, len(batches)))
         for block in batch:
             print("  {}".format(block.splitlines()[0][:100]))
 
         parts = list(sections)
+        parts.append(plan_outline)
         parts.append("Задачи ЭТОГО шага — реализуй только их:\n---\n{}\n---"
                      .format("\n\n".join(batch)))
         if done:
-            listing = "\n".join("- {}".format(p) for p in sorted(done))
-            parts.append(
-                "Уже созданные файлы (не дублируй; выводи повторно только если "
-                "задача требует их изменить):\n{}".format(listing))
-            parts.append("Содержимое уже созданных файлов:\n{}".format(
-                "\n\n".join("### FILE: {}\n```\n{}\n```".format(p, c)
-                            for p, c in sorted(done.items()))))
+            parts.append(generated_context(done))
 
         raw = llm_chat(settings, system, "\n\n".join(parts), progress=True)
         raw_log.append("## Батч {}/{}\n\n{}".format(index, len(batches), raw))
@@ -1325,7 +1420,7 @@ def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
             continue
 
         for rel, content in valid:
-            done[rel] = content
+            done[str(rel)] = content   # строкой: путь уходит в change.yaml
         print()
         info("Файлы батча ({}):".format(len(valid)))
         for rel, _ in valid:
@@ -1334,6 +1429,10 @@ def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
             warn("--dry-run: не записаны")
         else:
             write_files(valid)
+            # Прогресс после каждого батча: прерванный кодоген можно
+            # продолжить, а не гонять всё заново.
+            save_codegen_progress(change_dir, batch_size, len(task_blocks),
+                                  index, sorted(done))
 
     (change_dir / "codegen-output.md").write_text(
         "\n\n---\n\n".join(raw_log), encoding="utf-8")
@@ -1552,6 +1651,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="(codegen) генерировать порциями по N задач из "
                              "tasks.md вместо одного большого запроса "
                              "(переопределяет code_generation.batch_size)")
+    parser.add_argument("--fresh", action="store_true",
+                        help="(codegen) игнорировать прогресс прошлого запуска "
+                             "и сгенерировать все батчи заново")
     parser.add_argument("--no-test", action="store_true",
                         help="(codegen) не запускать тесты после записи файлов")
     parser.add_argument("--no-commit", action="store_true",
