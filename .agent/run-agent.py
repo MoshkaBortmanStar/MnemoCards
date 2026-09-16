@@ -171,6 +171,17 @@ tasks.md (переданы ниже).
 в месте подключения, если рядом так не делают. Не добавляй библиотеки,
 которых задача не требует.
 
+ПРАВИЛО ПРАВКИ ФАЙЛОВ СБОРКИ — соблюдай строго. Файл выводится целиком, но
+менять в нём можно ТОЛЬКО то, что требует задача:
+- существующие строки переноси ДОСЛОВНО, символ в символ: имена артефактов,
+  версии, порядок, отступы, комментарии;
+- ничего не переименовывай, не сокращай и не «причёсывай» по дороге;
+- новые записи добавляй рядом с однотипными, по образцу соседней строки.
+Имена артефактов полные и точные: у многих библиотек имя повторяет префикс
+группы (например androidx.lifecycle:lifecycle-runtime-ktx, а не runtime-ktx).
+Сокращение такого префикса ломает сборку, а синтаксически файл выглядит
+правильным — проверяй по соседним строкам того же файла.
+
 ФОРМАТ ОТВЕТА — строго для каждого файла:
 
 ### FILE: <относительный/путь/Файл.расширение>
@@ -345,6 +356,21 @@ def load_llm_settings(cfg: Dict) -> LLMSettings:
         stream=bool(ai.get("stream", True)),
         extra=dict(ai.get("extra_params") or {}),
     )
+
+
+def codegen_llm_settings(cfg: Dict) -> LLMSettings:
+    """Настройки для кодогенерации: базовые + переопределения этого шага.
+
+    Спека и код — разные задачи. При проектировании размышления модели
+    полезны, при генерации кода по готовому плану они только жгут бюджет
+    max_tokens. Поэтому code_generation.extra_params накладывается поверх
+    ai_settings.extra_params и действует только на этот шаг.
+    """
+    settings = load_llm_settings(cfg)
+    override = (cfg.get("code_generation") or {}).get("extra_params")
+    if override:
+        settings.extra = _deep_merge(settings.extra, override)
+    return settings
 
 
 FILE_HEADER_RE = re.compile(r"###\s*FILE:\s*([^\s`\n]+)")
@@ -1140,13 +1166,14 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
     build_ctx = build_files_context(cfg)
     if build_ctx:
         sections.append(build_ctx)
+    build_snapshot = snapshot_build_files(cfg)
     # Полный план нужен только одиночному запросу: в батчах вместо него идут
     # заголовки задач (план целиком) плюс полный текст задач своего шага.
     user = "\n\n".join(sections
                        + ["План tasks.md:\n---\n{}\n---".format(tasks.rstrip())])
 
     banner("Кодогенерация для {}".format(change_dir.name))
-    settings = load_llm_settings(cfg)
+    settings = codegen_llm_settings(cfg)
     info("Модель: {} ({})".format(settings.model, settings.base_url))
 
     batch_size = args.batch if args.batch is not None else \
@@ -1165,6 +1192,7 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
         return  # dry-run или отмена пользователем
 
     mark_artifact(change_dir, "code-generation", "generated")
+    check_build_files_intact(build_snapshot)
 
     if args.no_test:
         print()
@@ -1200,6 +1228,48 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
     info("Изменение готово к мерджу. Из основного проекта:")
     print("  python3 .agent/run-agent.py --worktrees")
     print("  git merge {}".format(git_meta.get("branch", "<ветка>")))
+
+
+def snapshot_build_files(cfg: Dict) -> Dict[str, List[str]]:
+    """Запомнить строки файлов сборки до кодогенерации."""
+    paths = (cfg.get("code_generation") or {}).get("dependency_files") or []
+    snapshot = {}
+    for rel in paths:
+        path = PROJECT_ROOT / rel
+        if path.is_file():
+            snapshot[rel] = path.read_text(encoding="utf-8").splitlines()
+    return snapshot
+
+
+def check_build_files_intact(snapshot: Dict[str, List[str]]) -> None:
+    """Предупредить, если из файлов сборки пропали существовавшие строки.
+
+    Модель выводит файл сборки целиком, и на перепечатывании теряет детали:
+    в change-002 у артефактов androidx.lifecycle пропал префикс `lifecycle-`
+    в поле name — файл остался синтаксически верным, а сборка развалилась
+    на резолве зависимостей. Ловим такое до запуска тестов.
+    """
+    for rel, before in snapshot.items():
+        path = PROJECT_ROOT / rel
+        if not path.is_file():
+            warn("файл сборки пропал после кодогенерации: {}".format(rel))
+            continue
+        after = set(line.strip() for line in
+                    path.read_text(encoding="utf-8").splitlines())
+        lost = [line for line in before
+                if line.strip() and line.strip() not in after]
+        if not lost:
+            continue
+        print()
+        warn("В {} изменились или пропали строки, которые были раньше ({}):"
+             .format(rel, len(lost)))
+        for line in lost[:8]:
+            print("    {}".format(line.strip()[:100]))
+        if len(lost) > 8:
+            print("    ... ещё {}".format(len(lost) - 8))
+        info("Проверь: модель могла «причесать» файл и сломать имена "
+             "артефактов. Вернуть прежнюю версию: git checkout -- {}"
+             .format(rel))
 
 
 def build_files_context(cfg: Dict) -> str:
