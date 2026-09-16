@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mnemocards.ui.review.ReviewScreen
 import com.mnemocards.ui.review.ReviewViewModel
+import com.mnemocards.ui.theme.MnemoCardsTheme
 
 /**
  * Точка входа приложения (задача T8): в `setContent` получается
@@ -22,7 +23,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            MnemoCardsTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,

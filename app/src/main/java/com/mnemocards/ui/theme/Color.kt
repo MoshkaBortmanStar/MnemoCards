@@ -14,6 +14,8 @@ val Blue       = Color(0xFF60A5FA)  // secondary — второстепенны�
 val Green      = Color(0xFF34D399)  // tertiary — успех, "выучено"
 val Red        = Color(0xFFF87171)  // error — ошибка, "забыл"
 
+val Orange     = Color(0xFFFBBF24)  // "Трудно"
+
 // Текст
 val TextMain   = Color(0xFFE7E3F0)  // основной
 val TextMuted  = Color(0xFF9B93B0)  // приглушённый, подписи

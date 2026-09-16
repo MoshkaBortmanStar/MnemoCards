@@ -40,12 +40,13 @@ fun ReviewScreen(
             .fillMaxSize()
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.SpaceBetween,
     ) {
         ReviewCard(
             card = state.currentCard,
             isFlipped = state.isFlipped,
             onTap = viewModel::onCardTap,
+            modifier = Modifier.weight(1f),
         )
         if (state.isFlipped && !state.isFinished) {
             RatingBar(

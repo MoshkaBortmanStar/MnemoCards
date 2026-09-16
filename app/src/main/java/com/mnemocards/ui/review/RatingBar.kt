@@ -42,21 +42,25 @@ fun RatingBar(
         RatingButton(
             tag = "btnForgot",
             label = "Забыл",
+            color = com.mnemocards.ui.theme.Red,
             modifier = Modifier.weight(1f),
         ) { onRate(Grade.FORGOT) }
         RatingButton(
             tag = "btnHard",
             label = "Трудно",
+            color = com.mnemocards.ui.theme.Orange,
             modifier = Modifier.weight(1f),
         ) { onRate(Grade.HARD) }
         RatingButton(
             tag = "btnGood",
             label = "Хорошо",
+            color = com.mnemocards.ui.theme.Blue,
             modifier = Modifier.weight(1f),
         ) { onRate(Grade.GOOD) }
         RatingButton(
             tag = "btnEasy",
             label = "Легко",
+            color = com.mnemocards.ui.theme.Green,
             modifier = Modifier.weight(1f),
         ) { onRate(Grade.EASY) }
     }
@@ -66,6 +70,7 @@ fun RatingBar(
 private fun RowScope.RatingButton(
     tag: String,
     label: String,
+    color: androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -73,6 +78,10 @@ private fun RowScope.RatingButton(
         onClick = onClick,
         modifier = modifier.testTag(tag),
         contentPadding = PaddingValues(horizontal = 4.dp),
+        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+            containerColor = color,
+            contentColor = com.mnemocards.ui.theme.Ink,
+        ),
     ) {
         Text(text = label)
     }
