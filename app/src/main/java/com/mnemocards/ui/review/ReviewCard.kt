@@ -16,7 +16,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.mnemocards.domain.model.Card
 
 /**
  * Карточка тренировки: контейнер по центру экрана с текстом текущей стороны.
@@ -35,7 +34,8 @@ import com.mnemocards.domain.model.Card
  */
 @Composable
 fun ReviewCard(
-    card: Card,
+    front: String,
+    back: String,
     isFlipped: Boolean,
     onTap: () -> Unit,
     modifier: Modifier = Modifier,
@@ -55,7 +55,7 @@ fun ReviewCard(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = if (isFlipped) card.back else card.front,
+                text = if (isFlipped) back else front,
                 modifier = Modifier
                     .testTag("cardSideText")
                     .padding(horizontal = CardContentPadding, vertical = CardContentPadding),

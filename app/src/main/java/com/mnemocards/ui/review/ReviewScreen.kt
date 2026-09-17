@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,7 +36,17 @@ fun ReviewScreen(
     onBack: () -> Unit,
 ) {
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Тренировка") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Тренировка") },
+                // Шапка сливается с фоном: выделяться должна карточка, не панель.
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
+            )
+        },
+        containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         when (uiState) {
             ReviewUiState.Loading -> CenteredContent(paddingModifier(padding)) {
@@ -61,42 +72,22 @@ fun ReviewScreen(
                         .padding(top = 16.dp),
                     textAlign = TextAlign.Center,
                 )
-                Column(
+                // Оформление карточки и кнопок живёт в ReviewCard/RatingBar —
+                // экран только раскладывает их и передаёт состояние.
+                ReviewCard(
+                    front = uiState.front,
+                    back = uiState.back,
+                    isFlipped = uiState.flipped,
+                    onTap = onFlip,
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
-                        .clickable { onFlip() },
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(
-                        text = if (uiState.flipped) uiState.back else uiState.front,
-                        style = MaterialTheme.typography.headlineMedium,
-                        textAlign = TextAlign.Center,
-                    )
-                }
+                        .padding(horizontal = 16.dp),
+                )
                 if (uiState.flipped) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Button(
-                            onClick = { onGrade(ReviewGrade.FORGOT) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Забыл") }
-                        Button(
-                            onClick = { onGrade(ReviewGrade.HARD) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Трудно") }
-                        Button(
-                            onClick = { onGrade(ReviewGrade.GOOD) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Хорошо") }
-                        Button(
-                            onClick = { onGrade(ReviewGrade.EASY) },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Легко") }
-                    }
+                    RatingBar(
+                        onRate = onGrade,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
                 }
             }
 

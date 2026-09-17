@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.compose.rememberNavController
 import com.mnemocards.ui.MnemoCardsNavHost
 import com.mnemocards.ui.decks.DeckListViewModel
+import com.mnemocards.ui.theme.MnemoCardsTheme
 
 /**
  * Единственная Activity приложения (T13, change `add-offline-storage`).
@@ -26,21 +27,25 @@ class MainActivity : ComponentActivity() {
         val container = (application as MnemoCardsApplication).container
 
         setContent {
-            val navController = rememberNavController()
-            MnemoCardsNavHost(
-                navController = navController,
-                deckListViewModel = viewModel(
-                    factory = viewModelFactory {
-                        initializer { DeckListViewModel(container.deckRepository) }
+            // Обёртка обязательна: без неё Compose берёт светлую схему
+            // по умолчанию (см. Conventions в specs/MAIN.md).
+            MnemoCardsTheme {
+                val navController = rememberNavController()
+                MnemoCardsNavHost(
+                    navController = navController,
+                    deckListViewModel = viewModel(
+                        factory = viewModelFactory {
+                            initializer { DeckListViewModel(container.deckRepository) }
+                        },
+                    ),
+                    reviewViewModelFactory = { deckId ->
+                        ReviewViewModelFactory.create(
+                            deckId = deckId,
+                            repository = container.deckRepository,
+                        )
                     },
-                ),
-                reviewViewModelFactory = { deckId ->
-                    ReviewViewModelFactory.create(
-                        deckId = deckId,
-                        repository = container.deckRepository,
-                    )
-                },
-            )
+                )
+            }
         }
     }
 }
