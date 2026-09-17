@@ -22,7 +22,7 @@ class MnemoCardsApplication : Application() {
         super.onCreate()
         container = AppContainer(this)
         applicationScope.launch {
-            DatabaseSeeder.seed(container.database)
+            DatabaseSeeder.seedIfEmpty(container.database)
         }
     }
 }

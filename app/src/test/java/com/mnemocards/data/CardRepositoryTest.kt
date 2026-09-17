@@ -228,6 +228,9 @@ class CardRepositoryTest {
         override fun observeDeckById(id: Long): Flow<DeckEntity?> = throw IllegalStateException()
         override fun observeDecksWithCardCounts(): Flow<List<com.mnemocards.data.db.DeckWithCardCount>> =
             throw IllegalStateException()
+        override suspend fun renameDeck(id: Long, name: String) = Unit
+        override suspend fun deleteCardsByDeckId(deckId: Long) = Unit
+        override suspend fun deleteDeckById(id: Long) = Unit
     }
 
     // S26: insert падает — Error, приложение не падает, записей нет.

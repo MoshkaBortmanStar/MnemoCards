@@ -63,13 +63,13 @@ class MigrationTest {
             .allowMainThreadQueries()
             .build()
 
-        DatabaseSeeder.seed(db)
-        DatabaseSeeder.seed(db) // повторный вызов — без дубликатов
+        DatabaseSeeder.seedIfEmpty(db)
+        DatabaseSeeder.seedIfEmpty(db) // повторный вызов — без дубликатов
 
         val cards = db.cardDao().observeCardsByDeck(1L).first()
         assertEquals(5, cards.size)
-        // createdAt DESC: первая в потоке — последняя засеянная ("book").
-        assertEquals("book", cards.first().front)
+        // createdAt DESC: первая в потоке — последняя засеянная ("water").
+        assertEquals("water", cards.first().front)
         // Возрастающие createdAt у посева.
         assertEquals(cards.map { it.createdAt }.sortedDescending(), cards.map { it.createdAt })
 
