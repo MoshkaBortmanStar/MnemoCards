@@ -1,25 +1,53 @@
 package com.mnemocards.ui.review
 
-import com.mnemocards.data.HardcodedDeck
-import com.mnemocards.domain.model.Card
+/**
+ * Состояния экрана тренировки колоды (T11, change `add-offline-storage`).
+ *
+ * Логика переворота, четырёх эквивалентных оценок и терминального экрана
+ * «на сегодня всё» сохранена из change `add-review-screen`; изменился только
+ * источник данных — карточки читаются из Room через `DeckRepository`
+ * по идентификатору выбранной колоды.
+ */
+sealed interface ReviewUiState {
+
+    /** Карточки читаются из Room (S4/S5). */
+    data object Loading : ReviewUiState
+
+    /**
+     * Колода/карточки отсутствуют в БД к моменту открытия тренировки (S8):
+     * экран не открывается на пустом наборе, выполняется возврат к списку.
+     */
+    data object NotFound : ReviewUiState
+
+    /**
+     * Активная карточка сессии.
+     *
+     * @param front слово на лицевой стороне;
+     * @param back перевод на оборотной стороне;
+     * @param flipped перевёрнута ли карточка;
+     * @param position номер текущей карточки (с единицы);
+     * @param total всего карточек в сессии.
+     */
+    data class Session(
+        val front: String,
+        val back: String,
+        val flipped: Boolean,
+        val position: Int,
+        val total: Int,
+    ) : ReviewUiState
+
+    /** Все карточки колоды оценены — «на сегодня всё» (S12). */
+    data object Finished : ReviewUiState
+}
 
 /**
- * UDF-состояние экрана тренировки (S1).
- *
- * - `cardIndex` — индекс текущей карточки в захардкоженной колоде (S1, S6);
- * - `isFlipped` — сторона карточки: `false` — «лицо» (слово), `true` — «перевод» (S2);
- * - `isFinished` — сессия завершена, показывается экран «на сегодня всё» (S7, S8).
- *
- * Состояние живёт в `ReviewViewModel` (S9), а не в `remember` внутри композиции.
- * `currentCard` — вычисляемое свойство: текущая карточка из `HardcodedDeck.cards`
- * с фиксированным порядком (S6); после завершения сессии индекс выходит за
- * границы списка, поэтому возвращается последняя карточка колоды.
+ * Оценка ответа. Четыре оценки эквивалентны по влиянию на переход
+ * к следующей карточке (change `add-review-screen`); влияние на SRS —
+ * предмет `srs.scheduling`.
  */
-data class ReviewUiState(
-    val cardIndex: Int = 0,
-    val isFlipped: Boolean = false,
-    val isFinished: Boolean = false,
-) {
-    val currentCard: Card
-        get() = HardcodedDeck.cards.getOrElse(cardIndex) { HardcodedDeck.cards.last() }
+enum class ReviewGrade {
+    FORGOT,
+    HARD,
+    GOOD,
+    EASY,
 }

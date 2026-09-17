@@ -1,168 +1,185 @@
 package com.mnemocards.ui.review
 
-import com.mnemocards.data.HardcodedDeck
-import com.mnemocards.domain.model.Grade
+import android.content.Context
+import androidx.lifecycle.SavedStateHandle
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import app.cash.turbine.test
+import com.mnemocards.data.db.DatabaseSeeder
+import com.mnemocards.data.db.DeckDao
+import com.mnemocards.data.db.MnemoCardsDatabase
+import com.mnemocards.data.repository.DeckRepositoryImpl
+import com.mnemocards.domain.model.Deck
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
- * Unit-тесты ReviewViewModel по сценариям S1, S2, S4–S8, S12
- * из spec-bdd.md (change `add-review-screen`).
+ * Тесты ViewModel сессии повторения на данных Room
+ * (T10/T11, change `add-offline-storage`).
  *
- * Задача T3: красное состояние TDD — ReviewViewModel ещё не реализован (задача T4).
+ * Дополнительно покрывает сценарии T16:
+ * - S10 — сессия полностью офлайн: карточки читаются из Room,
+ *   сетевые вызовы не выполняются;
+ * - S12 — полный проход сессии не изменяет данные репозитория:
+ *   счётчик карточек колоды остаётся равным 5.
+ *
+ * Загрузка карточек идёт через Room на реальном IO-диспатчере, поэтому
+ * тесты ждут целевое состояние хелпером [awaitState] (реальное время).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class ReviewViewModelTest {
 
-    private val testDispatcher = UnconfinedTestDispatcher()
+    private val dispatcher = UnconfinedTestDispatcher()
+
+    private lateinit var db: MnemoCardsDatabase
+    private lateinit var deckDao: DeckDao
+    private lateinit var repository: DeckRepositoryImpl
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(testDispatcher)
+        Dispatchers.setMain(dispatcher)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        db = Room.inMemoryDatabaseBuilder(context, MnemoCardsDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        deckDao = db.deckDao()
+        repository = DeckRepositoryImpl(deckDao)
+        kotlinx.coroutines.runBlocking { DatabaseSeeder(deckDao).seedIfNeeded() }
     }
 
     @After
     fun tearDown() {
+        db.close()
         Dispatchers.resetMain()
     }
 
-    /** ViewModel, продвинутая на `cardIndex` карточек вперёд (каждая оценена «Хорошо»). */
-    private fun viewModelAt(cardIndex: Int): ReviewViewModel =
-        ReviewViewModel().apply {
-            repeat(cardIndex) {
-                onCardTap()
-                onRate(Grade.GOOD)
+    private fun viewModel(deckId: Long = 1L): ReviewViewModel =
+        ReviewViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("deckId" to deckId)),
+            repository = repository,
+        )
+
+    /**
+     * S5/S10. GIVEN в Room колода с 5 карточками.
+     * WHEN открывается тренировка (без сети).
+     * THEN сессия загружает все карточки из Room по идентификатору
+     * выбранной колоды; показана лицевая сторона первой карточки.
+     */
+    @Test
+    fun session_loadsCardsFromRoom_forSelectedDeck() = runTest(dispatcher) {
+        val vm = viewModel()
+
+        val state = awaitState(vm) { it is ReviewUiState.Session } as ReviewUiState.Session
+        assertEquals(5, state.total)
+        assertEquals("cat", state.front)
+    }
+
+    /**
+     * S12. GIVEN колода с 5 карточками.
+     * WHEN пользователь полностью проходит сессию (перевороты,
+     * четыре оценки, терминальный экран).
+     * THEN данные репозитория не изменяются: счётчик карточек колоды
+     * в БД по-прежнему равен 5, список колод показывает «5».
+     */
+    @Test
+    fun fullSession_doesNotChangeRepositoryData() = runTest(dispatcher) {
+        val vm = viewModel()
+        awaitState(vm) { it is ReviewUiState.Session }
+
+        repeat(5) {
+            vm.onFlip()
+            vm.onGrade(ReviewGrade.entries[it % ReviewGrade.entries.size])
+        }
+
+        assertEquals(ReviewUiState.Finished, vm.uiState.value)
+        assertEquals(5, deckDao.cardCountForDeck(1L))
+
+        val decks = repository.observeDecks().firstValue()
+        assertEquals(5, decks.first { it.id == 1L }.cardCount)
+    }
+
+    /**
+     * S6/S12. GIVEN сессия завершена («на сегодня всё»).
+     * WHEN выполняется «назад».
+     * THEN эмитится событие навигации, данные не тронуты.
+     */
+    @Test
+    fun onBack_fromFinished_emitsNavigateBack() = runTest(dispatcher) {
+        val vm = viewModel()
+        awaitState(vm) { it is ReviewUiState.Session }
+        repeat(5) {
+            vm.onFlip()
+            vm.onGrade(ReviewGrade.GOOD)
+        }
+
+        vm.navigateBack.test {
+            vm.onBack()
+            assertEquals(Unit, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertEquals(5, deckDao.cardCountForDeck(1L))
+    }
+
+    /**
+     * S8 (аналог 404). GIVEN колоды с данным идентификатором в БД нет.
+     * WHEN открывается тренировка.
+     * THEN состояние NotFound и событие возврата к списку.
+     */
+    @Test
+    fun missingDeck_resultsInNotFoundAndNavigateBack() = runTest(dispatcher) {
+        val vm = viewModel(deckId = 999L)
+
+        assertEquals(
+            ReviewUiState.NotFound,
+            awaitState(vm) { it is ReviewUiState.NotFound },
+        )
+        vm.navigateBack.test {
+            assertEquals(Unit, awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    /**
+     * Ждёт состояние, удовлетворяющее предикату, в реальном времени:
+     * загрузка карточек выполняется Room на IO-диспатчере, а не на
+     * виртуальных часах [runTest].
+     */
+    private suspend fun awaitState(
+        vm: ReviewViewModel,
+        predicate: (ReviewUiState) -> Boolean,
+    ): ReviewUiState = withContext(Dispatchers.Default) {
+        val deadline = System.currentTimeMillis() + AWAIT_TIMEOUT_MS
+        while (System.currentTimeMillis() < deadline) {
+            vm.uiState.value.let { state ->
+                if (predicate(state)) return@withContext state
             }
+            Thread.sleep(50)
         }
-
-    /** S1: начальное состояние — индекс 0, сторона «лицо», кнопки скрыты. */
-    @Test
-    fun `initial state - index 0, face side, buttons hidden`() {
-        val viewModel = ReviewViewModel()
-
-        val state = viewModel.state.value
-
-        assertEquals(0, state.cardIndex)
-        assertFalse(state.isFlipped)
-        assertFalse(state.isFinished)
-        assertEquals(HardcodedDeck.cards.first(), state.currentCard)
+        error("состояние не достигнуто за ${AWAIT_TIMEOUT_MS} мс: ${vm.uiState.value}")
     }
 
-    /** S2: onCardTap из состояния «лицо» — переворот, кнопки видимы. */
-    @Test
-    fun `onCardTap from face side flips the card`() {
-        val viewModel = ReviewViewModel()
-
-        viewModel.onCardTap()
-
-        val state = viewModel.state.value
-        assertTrue(state.isFlipped)
-        assertEquals(0, state.cardIndex)
-        assertFalse(state.isFinished)
-    }
-
-    /** S4: onCardTap по перевёрнутой карточке — состояние не меняется. */
-    @Test
-    fun `onCardTap on flipped card does not change state`() {
-        val viewModel = ReviewViewModel()
-        viewModel.onCardTap()
-        val before = viewModel.state.value
-
-        viewModel.onCardTap()
-
-        assertEquals(before, viewModel.state.value)
-    }
-
-    /** S5: onRate(GOOD) — индекс +1, сторона «лицо», порядок карточек фиксирован. */
-    @Test
-    fun `onRate GOOD advances to next card face side`() {
-        val viewModel = ReviewViewModel()
-        viewModel.onCardTap()
-
-        viewModel.onRate(Grade.GOOD)
-
-        val state = viewModel.state.value
-        assertEquals(1, state.cardIndex)
-        assertFalse(state.isFlipped)
-        assertFalse(state.isFinished)
-        assertEquals(HardcodedDeck.cards[1], state.currentCard)
-    }
-
-    /** S6: все четыре оценки эквивалентны — одна и та же следующая карточка. */
-    @Test
-    fun `all four grades lead to the same next card in fixed order`() {
-        Grade.entries.forEach { grade ->
-            val viewModel = ReviewViewModel()
-            viewModel.onCardTap()
-
-            viewModel.onRate(grade)
-
-            val state = viewModel.state.value
-            assertEquals(1, state.cardIndex)
-            assertFalse(state.isFlipped)
-            assertFalse(state.isFinished)
-            assertEquals(HardcodedDeck.cards[1], state.currentCard)
-        }
-    }
-
-    /** Guard-условие (поддержка S12): onRate до переворота состояние не меняет. */
-    @Test
-    fun `onRate before flip does not change state`() {
-        val viewModel = ReviewViewModel()
-        val before = viewModel.state.value
-
-        viewModel.onRate(Grade.GOOD)
-
-        assertEquals(before, viewModel.state.value)
-    }
-
-    /** S7: onRate на 5-й (последней) карточке — сессия завершена. */
-    @Test
-    fun `onRate on last card finishes the session`() {
-        val viewModel = viewModelAt(HardcodedDeck.cards.size - 1)
-        viewModel.onCardTap()
-        assertFalse(viewModel.state.value.isFinished)
-
-        viewModel.onRate(Grade.FORGOT)
-
-        assertTrue(viewModel.state.value.isFinished)
-    }
-
-    /** S8: в состоянии finished события onCardTap/onRate состояние не меняют. */
-    @Test
-    fun `events in finished state do not change state`() {
-        val viewModel = viewModelAt(HardcodedDeck.cards.size)
-        val before = viewModel.state.value
-        assertTrue(before.isFinished)
-
-        viewModel.onCardTap()
-        viewModel.onRate(Grade.EASY)
-
-        assertEquals(before, viewModel.state.value)
-    }
-
-    /** S12: двойной быстрый вызов onRate для одной карточки — индекс растёт ровно на 1. */
-    @Test
-    fun `double rapid onRate advances exactly one card`() {
-        val viewModel = ReviewViewModel()
-        viewModel.onCardTap()
-
-        viewModel.onRate(Grade.GOOD)
-        viewModel.onRate(Grade.GOOD)
-
-        val state = viewModel.state.value
-        assertEquals(1, state.cardIndex)
-        assertFalse(state.isFlipped)
-        assertFalse(state.isFinished)
-        assertEquals(HardcodedDeck.cards[1], state.currentCard)
+    private companion object {
+        const val AWAIT_TIMEOUT_MS = 10_000L
     }
 }
+
+/** Хелп: первое успешное значение Flow<Result<List<Deck>>>. */
+private suspend fun <T> Flow<Result<List<T>>>.firstValue(): List<T> =
+    firstOrNull { it.isSuccess }?.getOrThrow() ?: error("нет успешного значения")
