@@ -27,7 +27,14 @@ object DatabaseSeeder {
         "water" to "вода"
     )
 
-    suspend fun seedIfEmpty(db: MnemoCardsDatabase) {
+    /**
+     * @param now текущий момент, epochMillis — dueDate карточек посева:
+     *   новая карточка без истории сразу готова к повторению (S24, S29).
+     */
+    suspend fun seedIfEmpty(
+        db: MnemoCardsDatabase,
+        now: Long = System.currentTimeMillis(),
+    ) {
         if (isSeedingDone(db)) return
 
         db.withTransaction {
@@ -36,7 +43,7 @@ object DatabaseSeeder {
             if (isSeedingDone(db)) return@withTransaction
 
             val deckId = db.deckDao().insertDeck(DeckEntity(name = BASE_DECK_NAME))
-            val base = System.currentTimeMillis()
+            val base = now
             BASE_CARDS.forEachIndexed { index, (front, back) ->
                 db.cardDao().insertCard(
                     CardEntity(
@@ -45,6 +52,11 @@ object DatabaseSeeder {
                         back = back,
                         // Возрастающие createdAt — детерминированный порядок посева.
                         createdAt = base + index,
+                        // Параметры планирования SM-2 — дефолты новой карточки.
+                        easinessFactor = 2.5,
+                        repetitionNumber = 0,
+                        intervalDays = 0,
+                        dueDate = now,
                     )
                 )
             }

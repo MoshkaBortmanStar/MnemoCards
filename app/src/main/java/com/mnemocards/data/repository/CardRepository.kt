@@ -79,7 +79,15 @@ class RoomCardRepository(
         val now = System.currentTimeMillis()
         val createdAt = if (now > max) now else max + 1
         val id = cardDao.insertCard(
-            CardEntity(deckId = deckId, front = front, back = back, createdAt = createdAt)
+            // S24: новая карточка без истории готова к повторению сразу —
+            // дефолты планирования SM-2, dueDate = «сейчас».
+            CardEntity(
+                deckId = deckId,
+                front = front,
+                back = back,
+                createdAt = createdAt,
+                dueDate = now,
+            )
         )
         CardOperationResult.Success(id)
     } catch (e: Exception) {

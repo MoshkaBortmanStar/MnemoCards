@@ -2,6 +2,7 @@ package com.mnemocards.ui.navigation
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.room.Room
@@ -69,8 +70,13 @@ class AppNavHostTest {
         composeRule.onNodeWithText("Тренировать").performClick()
 
         composeRule.waitForIdle()
-        // Лицевая сторона первой карточки (новые сверху).
-        composeRule.onNodeWithText("dog").assertIsDisplayed()
+        // Сессия открыта: показана лицевая сторона какой-то из карточек колоды
+        // (все сеяные карточки готовы сразу, порядок равных due не фиксирован).
+        composeRule.waitUntil(5_000) {
+            listOf("hello", "dog").any {
+                composeRule.onAllNodesWithText(it).fetchSemanticsNodes().isNotEmpty()
+            }
+        }
     }
 
     private fun androidx.compose.ui.test.SemanticsNodeInteractionsProvider

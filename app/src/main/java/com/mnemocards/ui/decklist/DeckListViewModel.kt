@@ -3,26 +3,38 @@ package com.mnemocards.ui.decklist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.mnemocards.data.DeckCountsRepository
 import com.mnemocards.domain.DeckRepository
-import com.mnemocards.domain.model.Deck
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/**
+ * Элемент списка колод (change add-sm2-scheduling): общее количество
+ * карточек и сколько из них готово к повторению сегодня (S24–S27).
+ */
+data class DeckListItem(
+    val id: Long,
+    val name: String,
+    val total: Int,
+    val dueToday: Int,
+)
+
 /** Состояние экрана «Список колод» (UDF: состояние течёт вниз). */
 interface DeckListUiState {
-    val decks: List<Deck>
+    val decks: List<DeckListItem>
     val isLoading: Boolean
     val errorMessage: String?
     val isCreateDialogShown: Boolean
     val createDeckName: String
     val isCreateNameError: Boolean
-    val selectedDeck: Deck?
+    val selectedDeck: DeckListItem?
     val isMenuShown: Boolean
     val isRenameDialogShown: Boolean
     val renameDeckName: String
@@ -31,45 +43,64 @@ interface DeckListUiState {
 }
 
 private data class DeckListUiStateImpl(
-    override val decks: List<Deck> = emptyList(),
+    override val decks: List<DeckListItem> = emptyList(),
     override val isLoading: Boolean = true,
     override val errorMessage: String? = null,
     override val isCreateDialogShown: Boolean = false,
     override val createDeckName: String = "",
     override val isCreateNameError: Boolean = false,
-    override val selectedDeck: Deck? = null,
+    override val selectedDeck: DeckListItem? = null,
     override val isMenuShown: Boolean = false,
     override val isRenameDialogShown: Boolean = false,
     override val renameDeckName: String = "",
     override val isRenameNameError: Boolean = false,
-    override val isDeleteDialogShown: Boolean = false
+    override val isDeleteDialogShown: Boolean = false,
 ) : DeckListUiState
 
 /**
- * ViewModel списка колод. Room — single source of truth: список колод
- * наблюдается через Flow репозитория; мутации применяются в Room,
- * UI обновляется автоматически. Устаревший элемент (колода удалена
- * из Room уже после открытия меню/диалога) исчезает из списка сам —
- * поэтому операции по отсутствующему id безопасны как no-op (S21).
- * Специальных веток для базовой колоды нет (S14, S15).
+ * ViewModel списка колод. Room — single source of truth: список колод и
+ * счётчики (total, dueToday) наблюдаются через Flow, после оценок значения
+ * обновляются автоматически, без ручного обновления (S26). Устаревший
+ * элемент (колода удалена из Room уже после открытия меню/диалога)
+ * исчезает из списка сам — операции по отсутствующему id безопасны как
+ * no-op (S21). Специальных веток для базовой колоды нет (S14, S15).
  */
 class DeckListViewModel(
-    private val deckRepository: DeckRepository
+    private val deckRepository: DeckRepository,
+    countsRepository: DeckCountsRepository,
+    private val nowProvider: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DeckListUiStateImpl())
     val uiState: StateFlow<DeckListUiState> = _uiState.asStateFlow()
 
     init {
-        deckRepository.observeDecks()
-            .onEach { decks ->
-                _uiState.update { it.copy(decks = decks, isLoading = false) }
+        combine(
+            deckRepository.observeDecks(),
+            countsRepository.observeDecksWithCounts(nowProvider()),
+        ) { decks, counts ->
+            // Счётчики приходят из Room одним запросом (S25–S27);
+            // для колоды без записи (нет карточек) — total из доменной
+            // модели, dueToday = 0.
+            val countsById = counts.associateBy { it.deckId }
+            decks.map { deck ->
+                val deckCounts = countsById[deck.id]
+                DeckListItem(
+                    id = deck.id,
+                    name = deck.name,
+                    total = deckCounts?.total ?: deck.cardCount,
+                    dueToday = deckCounts?.dueToday ?: 0,
+                )
+            }
+        }
+            .onEach { items ->
+                _uiState.update { it.copy(decks = items, isLoading = false) }
             }
             .catch { error ->
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = error.message ?: "Ошибка чтения базы данных"
+                        errorMessage = error.message ?: "Ошибка чтения базы данных",
                     )
                 }
             }
@@ -116,7 +147,7 @@ class DeckListViewModel(
 
     // --- Контекстное меню (S6, S7) ---
 
-    fun onDeckLongPressed(deck: Deck) {
+    fun onDeckLongPressed(deck: DeckListItem) {
         _uiState.update { it.copy(selectedDeck = deck, isMenuShown = true) }
     }
 
@@ -208,9 +239,12 @@ class DeckListViewModel(
         _uiState.update { it.copy(errorMessage = null) }
     }
 
-    class Factory(private val deckRepository: DeckRepository) : ViewModelProvider.Factory {
+    class Factory(
+        private val deckRepository: DeckRepository,
+        private val countsRepository: DeckCountsRepository,
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            DeckListViewModel(deckRepository) as T
+            DeckListViewModel(deckRepository, countsRepository) as T
     }
 }

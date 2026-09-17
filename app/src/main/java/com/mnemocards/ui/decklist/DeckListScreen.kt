@@ -34,18 +34,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.mnemocards.domain.model.Deck
 
 /**
  * Экран «Список колод». UDF: события текут вверх в ViewModel,
  * состояние приходит вниз из StateFlow. Список читается из Room
  * через Flow репозитория, поэтому после мутаций обновляется сам.
+ * Рядом с общим количеством карточек — счётчик готовых к повторению
+ * сегодня (S25, S27), после оценок он обновляется автоматически (S26).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeckListScreen(
     viewModel: DeckListViewModel,
-    onDeckClick: (Deck) -> Unit,
+    onDeckClick: (DeckListItem) -> Unit,
     onTrainDeck: (Long) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -107,7 +108,7 @@ fun DeckListScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(onClick = viewModel::openCreateDialog) {
-                        Text("Создать первую колоду")
+                        Text("Создать первую колоду", maxLines = 1, softWrap = false)
                     }
                     Spacer(modifier = Modifier.weight(1f))
                 }
@@ -166,12 +167,13 @@ fun DeckListScreen(
  * Пункт списка колод: тап — открыть содержимое колоды, долгое
  * нажатие (S6) — контекстное меню ровно с двумя действиями.
  * Название обрезается одной строкой с ellipsis, в Room хранится
- * полный текст (S5).
+ * полный текст (S5). Под названием — общее количество карточек
+ * и сколько готово к повторению сегодня (S25, S27).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DeckItem(
-    deck: Deck,
+    deck: DeckListItem,
     isMenuShown: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -203,7 +205,7 @@ fun DeckItem(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${deck.cardCount} карточек",
+                    text = "${deck.total} карточек · готово сегодня: ${deck.dueToday}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                 )
@@ -212,7 +214,7 @@ fun DeckItem(
                 onClick = onTrain,
                 modifier = Modifier.padding(end = 8.dp)
             ) {
-                Text("Тренировать")
+                Text("Тренировать", maxLines = 1, softWrap = false)
             }
         }
         DropdownMenu(

@@ -1,14 +1,16 @@
 package com.mnemocards.ui.review
 
-import androidx.room.Room
-import androidx.test.core.app.ApplicationProvider
-import app.cash.turbine.test
-import com.mnemocards.data.db.MnemoCardsDatabase
-import com.mnemocards.data.repository.RoomCardRepository
+import kotlin.time.Duration.Companion.milliseconds
+
+import com.mnemocards.data.CardRepository
+import com.mnemocards.domain.model.Card
+import com.mnemocards.domain.scheduler.ReviewGrade
+import com.mnemocards.domain.scheduler.SchedulingState
+import com.mnemocards.domain.scheduler.Sm2Scheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -18,110 +20,382 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
+
+private const val DAY = 86_400_000L
+private const val MINUTE = 60_000L
+private const val TEN_MINUTES_MS = 10 * MINUTE
 
 /**
- * S22/S23: сессия тренировки читает колоду из Room через Flow —
- * новая карточка входит в сессию, правка текста отражается в открытой
- * сессии без её пересоздания.
+ * Unit-тесты ReviewViewModel (change add-sm2-scheduling):
+ * T13 — построение сессии (S16–S18, S31, S32),
+ * T15 — оценки, превью и повторный показ (S1–S4, S14, S15, S19–S21, S23, S30).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35])
 class ReviewViewModelTest {
 
-    private lateinit var db: MnemoCardsDatabase
+    private val dispatcher = StandardTestDispatcher()
+    private val now = 1_000_000_000L
 
     @Before
     fun setUp() {
-        db = Room.inMemoryDatabaseBuilder(
-            ApplicationProvider.getApplicationContext(),
-            MnemoCardsDatabase::class.java,
-        ).allowMainThreadQueries().build()
+        Dispatchers.setMain(dispatcher)
     }
 
     @After
     fun tearDown() {
-        db.close()
         Dispatchers.resetMain()
     }
 
-    // S22: добавленная карточка входит в сессию вместе с остальными.
-    @Test
-    fun newCard_entersReviewSession() = runTest {
-        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
-        val repository = RoomCardRepository(db.deckDao(), db.cardDao())
-        val deckId = db.deckDao().insertDeck(
-            com.mnemocards.data.db.DeckEntity(name = "Английский базовый"),
-        )
-        repository.addCard(deckId, "hello", "привет")
-        repository.addCard(deckId, "cat", "кошка")
+    private fun card(
+        id: Long,
+        deckId: Long = 1L,
+        front: String = "card$id",
+        easinessFactor: Double = 2.5,
+        repetitionNumber: Int = 0,
+        intervalDays: Int = 0,
+        dueDate: Long = now,
+    ) = Card(
+        id = id,
+        deckId = deckId,
+        front = front,
+        back = "перевод$id",
+        easinessFactor = easinessFactor,
+        repetitionNumber = repetitionNumber,
+        intervalDays = intervalDays,
+        dueDate = dueDate,
+    )
 
-        val viewModel = ReviewViewModel(deckId, repository)
+    /**
+     * Fake-репозиторий: хранит карточки в памяти, честно фильтрует их
+     * по dueDate <= now и применяет оценку тем же Sm2Scheduler, что и
+     * продакшн-репозиторий.
+     */
+    private class FakeCardRepository(
+        var deckExists: Boolean = true,
+        var failRead: Boolean = false,
+        var failWrite: Boolean = false,
+    ) : CardRepository {
 
-        viewModel.uiState.test {
-            // initialValue (isFinished=true до первой эмиссии Room) — проглатываем.
-            awaitItem()
+        val cards = mutableListOf<Card>()
+        val appliedGrades = mutableListOf<Pair<Card, ReviewGrade>>()
 
-            // Новые сверху: только что добавленная «cat» — первая.
-            val first = awaitItem()
-            assertEquals("cat", first.front)
-            assertFalse(first.isFinished)
+        override suspend fun deckExists(deckId: Long): Boolean = deckExists
 
-            // Оценка — переход к следующей карточке колоды.
-            viewModel.rate()
-            assertEquals("hello", awaitItem().front)
+        override suspend fun dueCards(deckId: Long, now: Long): List<Card> {
+            if (failRead) throw RuntimeException("db read error")
+            return cards.filter { it.deckId == deckId && it.dueDate <= now }
+        }
 
-            // Следующая оценка завершает сессию.
-            viewModel.rate()
-            assertTrue(awaitItem().isFinished)
-            cancelAndIgnoreRemainingEvents()
+        override suspend fun applyGrade(card: Card, grade: ReviewGrade, now: Long) {
+            if (failWrite) throw RuntimeException("db write error")
+            appliedGrades += card to grade
+            val next = Sm2Scheduler.next(
+                SchedulingState(
+                    easinessFactor = card.easinessFactor,
+                    repetitionNumber = card.repetitionNumber,
+                    intervalDays = card.intervalDays,
+                    dueDate = card.dueDate,
+                ),
+                grade,
+                now,
+            )
+            val index = cards.indexOfFirst { it.id == card.id }
+            cards[index] = card.copy(
+                easinessFactor = next.easinessFactor,
+                repetitionNumber = next.repetitionNumber,
+                intervalDays = next.intervalDays,
+                dueDate = next.dueDate,
+            )
         }
     }
 
-    // S23: правка текста карточки отражается в открытой сессии.
+    private fun viewModel(repo: FakeCardRepository) =
+        ReviewViewModel(deckId = 1L, repository = repo, nowProvider = { now })
+
+    // ------------------------------------------------------------------
+    // T13 — построение сессии
+    // ------------------------------------------------------------------
+
     @Test
-    fun editedCard_updatesOpenSession_withoutRecreation() = runTest {
-        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
-        val repository = RoomCardRepository(db.deckDao(), db.cardDao())
-        val deckId = db.deckDao().insertDeck(
-            com.mnemocards.data.db.DeckEntity(name = "Английский базовый"),
+    fun `S16 session is built only from due cards and starts with first due`() = runTest {
+        val repo = FakeCardRepository()
+        repo.cards += listOf(
+            card(1, front = "A", dueDate = now - DAY),      // вчера
+            card(2, front = "B", dueDate = now - MINUTE),   // недавно
+            card(3, front = "C", dueDate = now),            // ровно сейчас
+            card(4, front = "D", dueDate = now + DAY),      // завтра
+            card(5, front = "E", dueDate = now + 11 * 3_600_000L), // сегодня 23:59
         )
-        repository.addCard(deckId, "cat", "кошка")
 
-        val viewModel = ReviewViewModel(deckId, repository)
+        val vm = viewModel(repo)
+        advanceUntilIdle()
 
-        viewModel.uiState.test {
-            // initialValue (isFinished=true до первой эмиссии Room) — проглатываем.
-            awaitItem()
-            assertEquals("cat", awaitItem().front)
-
-            val card = repository.observeCards(deckId).first().first()
-            repository.updateCard(card.id, "a cat", card.back)
-
-            val updated = awaitItem()
-            assertEquals("a cat", updated.front)
-            assertEquals("кошка", updated.back)
-            cancelAndIgnoreRemainingEvents()
-        }
+        val state = vm.uiState.value
+        assertTrue(state is ReviewUiState.Session)
+        assertEquals("A", (state as ReviewUiState.Session).card.front)
+        assertFalse(state.isFlipped)
     }
 
-    // Пустая колода — терминальное состояние, приложение не падает.
     @Test
-    fun emptyDeck_immediatelyFinished() = runTest {
-        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
-        val repository = RoomCardRepository(db.deckDao(), db.cardDao())
-        val deckId = db.deckDao().insertDeck(
-            com.mnemocards.data.db.DeckEntity(name = "Пустая"),
+    fun `S17 no due cards shows Done immediately`() = runTest {
+        val repo = FakeCardRepository()
+        repo.cards += listOf(
+            card(1, dueDate = now + DAY),
+            card(2, dueDate = now + 2 * DAY),
         )
 
-        val viewModel = ReviewViewModel(deckId, repository)
+        val vm = viewModel(repo)
+        advanceUntilIdle()
 
-        viewModel.uiState.test {
-            assertTrue(awaitItem().isFinished)
-            cancelAndIgnoreRemainingEvents()
-        }
+        assertEquals(ReviewUiState.Done, vm.uiState.value)
+        // Данные карточек не изменяются.
+        assertTrue(repo.appliedGrades.isEmpty())
+    }
+
+    @Test
+    fun `S18 empty deck shows Done`() = runTest {
+        val repo = FakeCardRepository()
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        assertEquals(ReviewUiState.Done, vm.uiState.value)
+    }
+
+    @Test
+    fun `S32 missing deck shows NotFound`() = runTest {
+        val repo = FakeCardRepository(deckExists = false)
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        assertEquals(ReviewUiState.NotFound, vm.uiState.value)
+    }
+
+    @Test
+    fun `S31 read failure shows Error instead of session`() = runTest {
+        val repo = FakeCardRepository(failRead = true)
+        repo.cards += card(1)
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        assertEquals(ReviewUiState.Error, vm.uiState.value)
+    }
+
+    // ------------------------------------------------------------------
+    // T15 — оценки, превью, повторный показ
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `flip toggles isFlipped`() = runTest {
+        val repo = FakeCardRepository()
+        repo.cards += card(1)
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        vm.onFlip()
+        assertEquals(true, (vm.uiState.value as ReviewUiState.Session).isFlipped)
+        vm.onFlip()
+        assertEquals(false, (vm.uiState.value as ReviewUiState.Session).isFlipped)
+    }
+
+    @Test
+    fun `S14 S15 previews match applied intervals for repeating card`() = runTest {
+        val repo = FakeCardRepository()
+        repo.cards += card(1, repetitionNumber = 2, intervalDays = 6)
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        val previews = (vm.uiState.value as ReviewUiState.Session).previews
+        assertEquals(TEN_MINUTES_MS.milliseconds, previews[ReviewGrade.FORGOT])
+        assertEquals((7 * DAY).milliseconds, previews[ReviewGrade.HARD])
+        assertEquals((15 * DAY).milliseconds, previews[ReviewGrade.GOOD])
+        assertEquals((20 * DAY).milliseconds, previews[ReviewGrade.EASY])
+
+        // Подпись совпадает с применённым результатом (S15).
+        vm.onGrade(ReviewGrade.GOOD)
+        advanceUntilIdle()
+
+        val applied = repo.cards.single()
+        assertEquals(15, applied.intervalDays)
+        assertEquals(15 * DAY, applied.dueDate - now)
+    }
+
+    @Test
+    fun `S1 Easy on new card applies grade and moves to next card`() = runTest {
+        val repo = FakeCardRepository()
+        repo.cards += listOf(card(1, front = "cat"), card(2, front = "dog"))
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        vm.onGrade(ReviewGrade.EASY)
+        advanceUntilIdle()
+
+        assertEquals(1, repo.appliedGrades.size)
+        assertEquals(ReviewGrade.EASY, repo.appliedGrades.single().second)
+        val updated = repo.cards.first { it.front == "cat" }
+        assertEquals(2.6, updated.easinessFactor, 1e-9)
+        assertEquals(1, updated.repetitionNumber)
+        assertEquals(4, updated.intervalDays)
+        assertEquals("dog", (vm.uiState.value as ReviewUiState.Session).card.front)
+    }
+
+    @Test
+    fun `S2 S3 Good and Hard on new card apply grade`() = runTest {
+        val repo = FakeCardRepository()
+        repo.cards += card(1, front = "cat")
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        vm.onGrade(ReviewGrade.GOOD)
+        advanceUntilIdle()
+
+        val updated = repo.cards.single()
+        assertEquals(2.5, updated.easinessFactor, 1e-9)
+        assertEquals(1, updated.repetitionNumber)
+        assertEquals(1, updated.intervalDays)
+    }
+
+    @Test
+    fun `S4 Forgot keeps card in session`() = runTest {
+        val repo = FakeCardRepository()
+        repo.cards += card(1, front = "cat")
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        vm.onGrade(ReviewGrade.FORGOT)
+        advanceUntilIdle()
+
+        // Карточка не удалена из сессии — показана снова.
+        val state = vm.uiState.value as ReviewUiState.Session
+        assertEquals("cat", state.card.front)
+        assertEquals(false, state.isFlipped)
+        assertEquals(1, repo.appliedGrades.size)
+    }
+
+    @Test
+    fun `S19 Forgot moves card to the end of the queue`() = runTest {
+        val repo = FakeCardRepository()
+        repo.cards += listOf(
+            card(1, front = "A"),
+            card(2, front = "B"),
+            card(3, front = "C"),
+        )
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        vm.onGrade(ReviewGrade.FORGOT) // A — в конец
+        advanceUntilIdle()
+        assertEquals("B", (vm.uiState.value as ReviewUiState.Session).card.front)
+
+        vm.onGrade(ReviewGrade.GOOD)   // B закрыта
+        advanceUntilIdle()
+        assertEquals("C", (vm.uiState.value as ReviewUiState.Session).card.front)
+
+        vm.onGrade(ReviewGrade.GOOD)   // C закрыта
+        advanceUntilIdle()
+
+        // После C карточка A показана повторно — лицевой стороной.
+        val state = vm.uiState.value as ReviewUiState.Session
+        assertEquals("A", state.card.front)
+        assertEquals(false, state.isFlipped)
+    }
+
+    @Test
+    fun `S20 graduating the last re-queued card finishes session`() = runTest {
+        val repo = FakeCardRepository()
+        repo.cards += listOf(card(1, front = "A"), card(2, front = "B"))
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        vm.onGrade(ReviewGrade.FORGOT) // A — в конец, следующая B
+        advanceUntilIdle()
+        vm.onGrade(ReviewGrade.GOOD)   // B закрыта, A — повторный показ
+        advanceUntilIdle()
+        vm.onGrade(ReviewGrade.GOOD)   // A получает №1 и интервал 1 день
+        advanceUntilIdle()
+
+        assertEquals(ReviewUiState.Done, vm.uiState.value)
+        val updated = repo.cards.first { it.front == "A" }
+        assertEquals(1, updated.repetitionNumber)
+        assertEquals(1, updated.intervalDays)
+    }
+
+    @Test
+    fun `S21 repeated Forgot lowers EF but not below floor`() = runTest {
+        val repo = FakeCardRepository()
+        repo.cards += card(1, front = "A")
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        vm.onGrade(ReviewGrade.FORGOT)
+        advanceUntilIdle()
+        vm.onGrade(ReviewGrade.FORGOT)
+        advanceUntilIdle()
+
+        // Серия «Забыл»: EF 2.5 → 2.3 → 2.1.
+        assertEquals(2.5, repo.appliedGrades[0].first.easinessFactor, 1e-9)
+        assertEquals(2.3, repo.appliedGrades[1].first.easinessFactor, 1e-9)
+        val updated = repo.cards.single()
+        assertEquals(2.1, updated.easinessFactor, 1e-9)
+        assertEquals(0, updated.repetitionNumber)
+        // A снова в конце очереди — показана повторно.
+        assertEquals("A", (vm.uiState.value as ReviewUiState.Session).card.front)
+    }
+
+    @Test
+    fun `S23 card with repetition 1 previews 6 days on Good`() = runTest {
+        val repo = FakeCardRepository()
+        repo.cards += card(1, repetitionNumber = 1, intervalDays = 1)
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        val previews = (vm.uiState.value as ReviewUiState.Session).previews
+        assertEquals((6 * DAY).milliseconds, previews[ReviewGrade.GOOD])
+
+        vm.onGrade(ReviewGrade.GOOD)
+        advanceUntilIdle()
+
+        val updated = repo.cards.single()
+        assertEquals(6, updated.intervalDays)
+        assertEquals(2, updated.repetitionNumber)
+    }
+
+    @Test
+    fun `S30 write failure keeps card unevaluated and retry applies`() = runTest {
+        val repo = FakeCardRepository(failWrite = true)
+        repo.cards += listOf(card(1, front = "A"), card(2, front = "B"))
+
+        val vm = viewModel(repo)
+        advanceUntilIdle()
+
+        vm.onGrade(ReviewGrade.GOOD)
+        advanceUntilIdle()
+
+        // Ошибка сохранения: карточка осталась в очереди неоценённой.
+        val state = vm.uiState.value as ReviewUiState.Session
+        assertTrue(state.saveError)
+        assertEquals("A", state.card.front)
+        val unchanged = repo.cards.first { it.front == "A" }
+        assertEquals(0, unchanged.repetitionNumber)
+
+        // Повторное нажатие применяется после восстановления БД.
+        repo.failWrite = false
+        vm.onGrade(ReviewGrade.GOOD)
+        advanceUntilIdle()
+
+        assertFalse((vm.uiState.value as ReviewUiState.Session).saveError)
+        assertEquals("B", (vm.uiState.value as ReviewUiState.Session).card.front)
+        assertEquals(1, repo.cards.first { it.front == "A" }.repetitionNumber)
     }
 }

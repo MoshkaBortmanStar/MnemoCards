@@ -1,7 +1,9 @@
 package com.mnemocards.ui.decklist
 
+import com.mnemocards.data.DeckCountsRepository
 import com.mnemocards.domain.DeckRepository
 import com.mnemocards.domain.model.Deck
+import com.mnemocards.domain.model.DeckCounts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -68,14 +70,22 @@ class DeckListViewModelTest {
         }
     }
 
+    /** Фейковый источник счётчиков (total, dueToday) — S24–S27. */
+    private class FakeDeckCountsRepository : DeckCountsRepository {
+        val counts = MutableStateFlow<List<DeckCounts>>(emptyList())
+        override fun observeDecksWithCounts(now: Long): Flow<List<DeckCounts>> = counts
+    }
+
     private lateinit var repository: FakeDeckRepository
+    private lateinit var counts: FakeDeckCountsRepository
     private lateinit var viewModel: DeckListViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         repository = FakeDeckRepository()
-        viewModel = DeckListViewModel(repository)
+        counts = FakeDeckCountsRepository()
+        viewModel = DeckListViewModel(repository, counts)
     }
 
     @After
@@ -86,6 +96,14 @@ class DeckListViewModelTest {
     private suspend fun state(): DeckListUiState = viewModel.uiState.first()
 
     private val germanDeck = Deck(id = 7L, name = "Немецкий", cardCount = 5)
+
+    /** Ожидаемый элемент списка: счётчиков нет — total из cardCount, dueToday=0. */
+    private val Deck.expectedItem: DeckListItem
+        get() = DeckListItem(id = id, name = name, total = cardCount, dueToday = 0)
+
+    /** Долгое нажатие по доменной колоде — как его видит UI (S6). */
+    private fun longPress(deck: Deck) =
+        viewModel.onDeckLongPressed(deck.expectedItem)
 
     // S1: валидное название → createDeck вызван, диалог закрыт
     @Test
@@ -206,10 +224,10 @@ class DeckListViewModelTest {
     // S6: долгое нажатие → выбранная колода, меню открыто
     @Test
     fun longPress_selectsDeckAndOpensMenu() = runTest(dispatcher) {
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
 
         val state = state()
-        assertEquals(germanDeck, state.selectedDeck)
+        assertEquals(germanDeck.expectedItem, state.selectedDeck)
         assertTrue(state.isMenuShown)
     }
 
@@ -218,7 +236,7 @@ class DeckListViewModelTest {
     fun dismissMenu_changesNothing() = runTest(dispatcher) {
         repository.decks.value = listOf(germanDeck)
         advanceUntilIdle()
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
 
         viewModel.dismissMenu()
 
@@ -227,14 +245,14 @@ class DeckListViewModelTest {
         assertNull(state.selectedDeck)
         assertTrue(repository.renamedCalls.isEmpty())
         assertTrue(repository.deletedIds.isEmpty())
-        assertEquals(listOf(germanDeck), state.decks)
+        assertEquals(listOf(germanDeck.expectedItem), state.decks)
     }
 
     // S8: переименование вызывает renameDeck(id, название), счётчик не меняется
     @Test
     fun rename_callsRepositoryWithDeckId() = runTest(dispatcher) {
         repository.decks.value = listOf(germanDeck)
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
         viewModel.openRenameDialog()
         viewModel.updateRenameDeckName("Немецкий B1")
 
@@ -246,13 +264,13 @@ class DeckListViewModelTest {
         assertFalse(state.isRenameDialogShown)
         val renamed = state.decks.single()
         assertEquals("Немецкий B1", renamed.name)
-        assertEquals(5, renamed.cardCount)
+        assertEquals(5, renamed.total)
     }
 
     // S8: форма переименования открывается с текущим названием в поле
     @Test
     fun openRenameDialog_prefillsCurrentName() = runTest(dispatcher) {
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
 
         viewModel.openRenameDialog()
 
@@ -265,7 +283,7 @@ class DeckListViewModelTest {
     // S9: пустое название при переименовании → ошибка, репозиторий не вызван
     @Test
     fun renameWithEmptyName_showsErrorWithoutRepositoryCall() = runTest(dispatcher) {
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
         viewModel.openRenameDialog()
         viewModel.updateRenameDeckName("")
 
@@ -283,7 +301,7 @@ class DeckListViewModelTest {
     fun renameCancel_noRepositoryCalls() = runTest(dispatcher) {
         repository.decks.value = listOf(germanDeck)
         advanceUntilIdle()
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
         viewModel.openRenameDialog()
         viewModel.updateRenameDeckName("Немецкий B1")
 
@@ -299,7 +317,7 @@ class DeckListViewModelTest {
     @Test
     fun renameWithSameName_completesWithoutError() = runTest(dispatcher) {
         repository.decks.value = listOf(germanDeck)
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
         viewModel.openRenameDialog()
         // Поле содержит текущее название без изменений.
 
@@ -316,7 +334,7 @@ class DeckListViewModelTest {
     @Test
     fun deleteConfirm_callsDeleteDeck() = runTest(dispatcher) {
         repository.decks.value = listOf(germanDeck)
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
 
         viewModel.openDeleteDialog()
         viewModel.deleteDeck()
@@ -331,7 +349,7 @@ class DeckListViewModelTest {
     // S13: отмена удаления — deleteDeck не вызван
     @Test
     fun deleteCancel_doesNotCallRepository() = runTest(dispatcher) {
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
 
         viewModel.openDeleteDialog()
         viewModel.dismissDeleteDialog()
@@ -345,6 +363,7 @@ class DeckListViewModelTest {
     @Test
     fun emptyDeckList_isExposedAsEmptyState() = runTest(dispatcher) {
         repository.decks.value = emptyList()
+        advanceUntilIdle()
 
         val state = state()
         assertTrue(state.decks.isEmpty())
@@ -358,7 +377,7 @@ class DeckListViewModelTest {
         repository.failOnDelete = true
         repository.decks.value = listOf(germanDeck)
 
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
         viewModel.openRenameDialog()
         viewModel.updateRenameDeckName("Немецкий B1")
         viewModel.renameDeck()
@@ -370,21 +389,21 @@ class DeckListViewModelTest {
         assertEquals("Немецкий", state.decks.single().name)
 
         viewModel.consumeErrorMessage()
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
         viewModel.openDeleteDialog()
         viewModel.deleteDeck()
         advanceUntilIdle()
 
         state = state()
         assertTrue(state.errorMessage != null)
-        assertEquals(listOf(germanDeck), state.decks)
+        assertEquals(listOf(germanDeck.expectedItem), state.decks)
     }
 
     // S21 (аналог 404): действие над уже отсутствующим id — без исключения
     @Test
     fun operationsWithStaleDeck_areSafeNoOp() = runTest(dispatcher) {
         repository.decks.value = listOf(germanDeck)
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
 
         // Колода удалена из Room уже после открытия меню (устаревший элемент).
         repository.decks.value = emptyList()
@@ -393,7 +412,7 @@ class DeckListViewModelTest {
         viewModel.updateRenameDeckName("Немецкий B1")
         viewModel.renameDeck()
 
-        viewModel.onDeckLongPressed(germanDeck)
+        longPress(germanDeck)
         viewModel.openDeleteDialog()
         viewModel.deleteDeck()
         advanceUntilIdle()
@@ -405,5 +424,59 @@ class DeckListViewModelTest {
         val state = state()
         assertTrue(state.decks.isEmpty())
         assertNull(state.errorMessage)
+    }
+
+    // S25: элемент списка несёт total=5 и dueToday=2
+    @Test
+    fun deckItem_carriesTotalAndDueToday() = runTest(dispatcher) {
+        repository.decks.value = listOf(Deck(id = 1L, name = "Базовая", cardCount = 5))
+        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 5, dueToday = 2))
+        advanceUntilIdle()
+
+        val item = state().decks.single()
+        assertEquals(5, item.total)
+        assertEquals(2, item.dueToday)
+    }
+
+    // S27: все карточки в будущем — счётчик явно 0, колода не исчезает
+    @Test
+    fun dueToday_isZeroWhenAllCardsInFuture() = runTest(dispatcher) {
+        repository.decks.value = listOf(Deck(id = 1L, name = "Базовая", cardCount = 5))
+        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 5, dueToday = 0))
+        advanceUntilIdle()
+
+        val item = state().decks.single()
+        assertEquals(0, item.dueToday)
+        assertEquals(5, item.total)
+    }
+
+    // S26: после оценок dueToday приходит из Room автоматически
+    @Test
+    fun dueToday_updatesAutomaticallyAfterGrades() = runTest(dispatcher) {
+        repository.decks.value = listOf(Deck(id = 1L, name = "Базовая", cardCount = 5))
+        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 5, dueToday = 2))
+        advanceUntilIdle()
+        assertEquals(2, state().decks.single().dueToday)
+
+        // Обе назревшие карточки оценены — due ушёл в будущее.
+        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 5, dueToday = 0))
+        advanceUntilIdle()
+
+        val item = state().decks.single()
+        assertEquals(0, item.dueToday)
+        assertEquals(5, item.total)
+    }
+
+    // S24: новая карточка (due=«сейчас») сразу увеличивает счётчик
+    @Test
+    fun newCard_isDueImmediately() = runTest(dispatcher) {
+        repository.decks.value = listOf(Deck(id = 1L, name = "Базовая", cardCount = 5))
+        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 5, dueToday = 2))
+        advanceUntilIdle()
+
+        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 6, dueToday = 3))
+        advanceUntilIdle()
+
+        assertEquals(3, state().decks.single().dueToday)
     }
 }

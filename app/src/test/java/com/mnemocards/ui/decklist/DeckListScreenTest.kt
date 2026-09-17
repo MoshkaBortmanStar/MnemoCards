@@ -1,5 +1,8 @@
 package com.mnemocards.ui.decklist
 
+import com.mnemocards.data.DeckCountsRepository
+import com.mnemocards.domain.model.DeckCounts
+
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithText
@@ -85,6 +88,12 @@ class DeckListScreenTest {
     private lateinit var repository: FakeDeckRepository
     private lateinit var viewModel: DeckListViewModel
 
+    /** Счётчики колод — пустой Flow по умолчанию (total из cardCount, dueToday=0). */
+    private class FakeDeckCountsRepository : DeckCountsRepository {
+        override fun observeDecksWithCounts(now: Long) =
+            MutableStateFlow<List<DeckCounts>>(emptyList())
+    }
+
     @get:Rule
     val composeRule = androidx.compose.ui.test.junit4.createComposeRule()
 
@@ -92,7 +101,10 @@ class DeckListScreenTest {
     fun setUp() {
         Dispatchers.setMain(dispatcher)
         repository = FakeDeckRepository()
-        viewModel = DeckListViewModel(repository)
+        viewModel = DeckListViewModel(repository, FakeDeckCountsRepository())
+        // Первая эмиссия combine требует лишнего тика scheduler'а — докручиваем,
+        // чтобы каждая итерация теста начиналась со сложившимся списком.
+        dispatcher.scheduler.advanceUntilIdle()
         composeRule.setContent {
             MnemoCardsTheme {
                 DeckListScreen(
@@ -125,7 +137,7 @@ class DeckListScreenTest {
         advanceUntilIdle()
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Английские глаголы").assertIsDisplayed()
-        composeRule.onNodeWithText("0 карточек").assertIsDisplayed()
+        composeRule.onNodeWithText("0 карточек", substring = true).assertIsDisplayed()
         assertTrue(repository.createdNames.contains("Английские глаголы"))
     }
 
@@ -212,7 +224,7 @@ class DeckListScreenTest {
         advanceUntilIdle()
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Немецкий B1").assertIsDisplayed()
-        composeRule.onNodeWithText("5 карточек").assertIsDisplayed()
+        composeRule.onNodeWithText("5 карточек", substring = true).assertIsDisplayed()
         assertEquals(listOf(1L to "Немецкий B1"), repository.renamedDecks)
     }
 
@@ -320,7 +332,7 @@ class DeckListScreenTest {
         advanceUntilIdle()
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Первая колода").assertIsDisplayed()
-        composeRule.onNodeWithText("0 карточек").assertIsDisplayed()
+        composeRule.onNodeWithText("0 карточек", substring = true).assertIsDisplayed()
         composeRule.onNodeWithText("Пока нет колод").assertDoesNotExist()
         assertTrue(repository.createdNames.contains("Первая колода"))
     }
