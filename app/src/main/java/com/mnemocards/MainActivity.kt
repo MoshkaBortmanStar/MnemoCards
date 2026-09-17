@@ -18,7 +18,10 @@ class MainActivity : ComponentActivity() {
             // Приложение всегда тёмное: корневой composable оборачивается
             // в MnemoCardsTheme, голая MaterialTheme не используется.
             MnemoCardsTheme {
-                AppNavHost(db = container.database)
+                AppNavHost(
+                    db = container.database,
+                    csvFileGateway = container.csvFileGateway,
+                )
             }
         }
     }

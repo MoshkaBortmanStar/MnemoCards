@@ -3,6 +3,7 @@ package com.mnemocards.ui.cardform
 import app.cash.turbine.test
 import com.mnemocards.data.db.CardEntity
 import com.mnemocards.data.db.DeckEntity
+import com.mnemocards.data.repository.CardImportResult
 import com.mnemocards.data.repository.CardOperationResult
 import com.mnemocards.data.repository.CardRepository
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +53,14 @@ class CardFormViewModelTest {
             kotlinx.coroutines.flow.flowOf(cards.value.size)
 
         override suspend fun getCardById(id: Long): CardEntity? = cardById
+
+        // CSV-перенос (change-006): форме не нужен, заглушки для интерфейса.
+        override suspend fun exportCardTexts(deckId: Long): List<Pair<String, String>>? = null
+
+        override suspend fun importCards(
+            deckId: Long,
+            cards: List<Pair<String, String>>,
+        ): CardImportResult = CardImportResult.Imported(0)
 
         override suspend fun addCard(
             deckId: Long,

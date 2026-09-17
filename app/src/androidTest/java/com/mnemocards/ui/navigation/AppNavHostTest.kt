@@ -9,6 +9,7 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.mnemocards.data.db.MnemoCardsDatabase
+import com.mnemocards.data.file.SafCsvFileGateway
 import com.mnemocards.data.repository.RoomCardRepository
 import com.mnemocards.ui.theme.MnemoCardsTheme
 import kotlinx.coroutines.runBlocking
@@ -45,7 +46,12 @@ class AppNavHostTest {
 
         composeRule.setContent {
             MnemoCardsTheme {
-                AppNavHost(db = db)
+                AppNavHost(
+                    db = db,
+                    csvFileGateway = SafCsvFileGateway(
+                        InstrumentationRegistry.getInstrumentation().targetContext.contentResolver,
+                    ),
+                )
             }
         }
     }

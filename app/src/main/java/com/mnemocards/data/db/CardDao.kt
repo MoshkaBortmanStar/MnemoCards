@@ -3,6 +3,7 @@ package com.mnemocards.data.db
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -16,6 +17,25 @@ interface CardDao {
 
     @Insert
     suspend fun insertCard(card: CardEntity): Long
+
+    /**
+     * Пакетная вставка карточек при импорте CSV (change-006):
+     * @Insert со списком выполняется одной транзакцией Room.
+     */
+    @Insert
+    suspend fun insertAll(cards: List<CardEntity>): List<Long>
+
+    /**
+     * Импорт CSV (change-006): проверка колоды и вставка атомарны.
+     * Колода удалена «между» проверкой и вставкой → false, ничего не
+     * вставлено (S21); сбой вставки откатывает весь пакет (S22).
+     */
+    @Transaction
+    suspend fun insertImportedCards(deckId: Long, cards: List<CardEntity>): Boolean {
+        if (!deckExists(deckId)) return false
+        insertAll(cards)
+        return true
+    }
 
     /** 0, если записи нет — основа 404-аналога на уровне репозитория. */
     @Update

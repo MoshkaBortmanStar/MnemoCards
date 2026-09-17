@@ -14,6 +14,7 @@ import androidx.navigation.navArgument
 import com.mnemocards.data.RoomDeckCountsRepository
 import com.mnemocards.data.RoomDeckRepository
 import com.mnemocards.data.db.MnemoCardsDatabase
+import com.mnemocards.data.file.CsvFileGateway
 import com.mnemocards.data.repository.RoomCardRepository
 import com.mnemocards.data.RoomCardRepository as ReviewCardRepository
 import com.mnemocards.ui.cardform.CardFormEvent
@@ -53,6 +54,7 @@ object Routes {
 @Composable
 fun AppNavHost(
     db: MnemoCardsDatabase,
+    csvFileGateway: CsvFileGateway,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -87,9 +89,11 @@ fun AppNavHost(
                 DeckContentViewModel(
                     deckId = deckId,
                     repository = RoomCardRepository(db.deckDao(), db.cardDao()),
+                    csvFileGateway = csvFileGateway,
                 )
             }
             val state by viewModel.uiState.collectAsStateWithLifecycle()
+            val transferMessage by viewModel.transferMessage.collectAsStateWithLifecycle()
 
             // S24: устаревший deckId — автоматический возврат к списку колод,
             // пустой список не выдаётся за успешную загрузку.
@@ -101,11 +105,15 @@ fun AppNavHost(
 
             DeckContentScreen(
                 state = state,
+                transferMessage = transferMessage,
                 onBack = { navController.popBackStack() },
                 onAddCard = { navController.navigate(Routes.cardForm(deckId)) },
                 onEditCard = { cardId -> navController.navigate(Routes.cardForm(deckId, cardId)) },
                 onDeleteCard = viewModel::deleteCard,
                 onRetry = viewModel::retry,
+                onExportTarget = viewModel::onExportTarget,
+                onImportFile = viewModel::onImportFile,
+                onTransferMessageShown = viewModel::onTransferMessageShown,
             )
         }
 
