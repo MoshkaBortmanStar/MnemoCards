@@ -1,16 +1,20 @@
 package com.mnemocards.ui.review
 
-import androidx.compose.ui.test.Position
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.topLeft
+import androidx.lifecycle.SavedStateHandle
 import com.mnemocards.data.HardcodedDeck
 import org.junit.Rule
 import org.junit.Test
@@ -22,6 +26,9 @@ import org.junit.Test
  * Границы интеракций: переворот выполняется только тапом по самой карточке (S3),
  * повторный тап по перевёрнутой карточке состояние не меняет (S4), double-tap
  * по кнопке оценки обрабатывается как ровно одно нажатие (S12).
+ *
+ * change-002: экран stateless — состояние из [ReviewViewModel]
+ * (данные через [FakeReviewRepository]).
  */
 class ReviewScreenEdgeTest {
 
@@ -30,10 +37,31 @@ class ReviewScreenEdgeTest {
 
     private val ratingButtonTags = listOf("btnForgot", "btnHard", "btnGood", "btnEasy")
 
+    private lateinit var viewModel: ReviewViewModel
+
     private fun launchReviewScreen() {
+        viewModel = ReviewViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("deckId" to 1L)),
+            repository = FakeReviewRepository(),
+        )
         composeRule.setContent {
-            ReviewScreen(viewModel = ReviewViewModel())
+            val uiState by viewModel.uiState.collectAsState()
+            ReviewScreen(
+                uiState = uiState,
+                onFlip = viewModel::onFlip,
+                onGrade = viewModel::onGrade,
+                onBack = viewModel::onBack,
+            )
         }
+        // Loading с бесконечной анимацией индикатора не даёт Espresso
+        // успокоиться — ждём карточку поллингом, а не waitForIdle.
+        composeRule.waitUntil(TIMEOUT_MS) {
+            composeRule.onAllNodesWithTag("reviewCard").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    private companion object {
+        const val TIMEOUT_MS = 10_000L
     }
 
     private fun flipCurrentCard() {
@@ -64,10 +92,10 @@ class ReviewScreenEdgeTest {
     fun s3_tapOutsideCard_doesNotFlipIt() {
         launchReviewScreen()
 
-        composeRule.onRoot().performTouchInput { click(Position.topLeft) }
+        composeRule.onRoot().performTouchInput { click(topLeft) }
 
         composeRule.onNodeWithTag("reviewCard").assertIsDisplayed()
-        composeRule.onNodeWithTag("cardSideText")
+        composeRule.onNodeWithTag("cardSideText", useUnmergedTree = true)
             .assertTextEquals(HardcodedDeck.cards.first().front)
         composeRule.onNodeWithText(HardcodedDeck.cards.first().back)
             .assertDoesNotExist()
@@ -88,7 +116,7 @@ class ReviewScreenEdgeTest {
 
         flipCurrentCard()
 
-        composeRule.onNodeWithTag("cardSideText")
+        composeRule.onNodeWithTag("cardSideText", useUnmergedTree = true)
             .assertTextEquals(HardcodedDeck.cards.first().back)
         composeRule.onNodeWithText(HardcodedDeck.cards.first().front)
             .assertDoesNotExist()
@@ -113,7 +141,7 @@ class ReviewScreenEdgeTest {
         composeRule.onNodeWithTag("btnGood").performTouchInput { doubleClick() }
 
         // Ровно один переход: карточка №2 лицевой стороной.
-        composeRule.onNodeWithTag("cardSideText")
+        composeRule.onNodeWithTag("cardSideText", useUnmergedTree = true)
             .assertTextEquals(HardcodedDeck.cards[1].front)
         composeRule.onNodeWithText(HardcodedDeck.cards[1].back)
             .assertDoesNotExist()

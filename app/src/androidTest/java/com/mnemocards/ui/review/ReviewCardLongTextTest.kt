@@ -1,12 +1,12 @@
 package com.mnemocards.ui.review
 
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
-import com.mnemocards.domain.model.Card
+import androidx.compose.ui.unit.DpRect
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -20,6 +20,10 @@ import org.junit.Test
  * WHEN такая карточка отображается (лицевая и перевёрнутая стороны).
  * THEN текст не выходит за границы карточки (перенос по словам либо
  * многоточие), карточка не выходит за границы экрана — вёрстка не ломается.
+ *
+ * change-002: `ReviewCard` принимает `front`/`back` строками
+ * (domain-модель `Card` больше не участвует); `getBoundsInRoot`
+ * возвращает `DpRect`.
  */
 class ReviewCardLongTextTest {
 
@@ -35,7 +39,8 @@ class ReviewCardLongTextTest {
     private fun composeCard(isFlipped: Boolean) {
         composeRule.setContent {
             ReviewCard(
-                card = Card(front = longUnbreakableWord, back = longPhrase),
+                front = longUnbreakableWord,
+                back = longPhrase,
                 isFlipped = isFlipped,
                 onTap = {},
             )
@@ -48,7 +53,7 @@ class ReviewCardLongTextTest {
         composeCard(isFlipped = false)
 
         composeRule.onNodeWithTag("reviewCard").assertIsDisplayed()
-        composeRule.onNodeWithTag("cardSideText").assertIsDisplayed()
+        composeRule.onNodeWithTag("cardSideText", useUnmergedTree = true).assertIsDisplayed()
         assertTextStaysInsideCard()
         assertCardStaysInsideRoot()
     }
@@ -59,14 +64,14 @@ class ReviewCardLongTextTest {
         composeCard(isFlipped = true)
 
         composeRule.onNodeWithTag("reviewCard").assertIsDisplayed()
-        composeRule.onNodeWithTag("cardSideText").assertIsDisplayed()
+        composeRule.onNodeWithTag("cardSideText", useUnmergedTree = true).assertIsDisplayed()
         assertTextStaysInsideCard()
         assertCardStaysInsideRoot()
     }
 
     /** Текст карточки целиком лежит внутри области карточки. */
     private fun assertTextStaysInsideCard() {
-        val textBounds = composeRule.onNodeWithTag("cardSideText").getBoundsInRoot()
+        val textBounds = composeRule.onNodeWithTag("cardSideText", useUnmergedTree = true).getBoundsInRoot()
         val cardBounds = composeRule.onNodeWithTag("reviewCard").getBoundsInRoot()
         assertRectInside(inner = textBounds, outer = cardBounds, innerName = "cardSideText")
     }
@@ -78,7 +83,7 @@ class ReviewCardLongTextTest {
         assertRectInside(inner = cardBounds, outer = rootBounds, innerName = "reviewCard")
     }
 
-    private fun assertRectInside(inner: Rect, outer: Rect, innerName: String) {
+    private fun assertRectInside(inner: DpRect, outer: DpRect, innerName: String) {
         assertTrue(
             "$innerName: левая граница внутри родителя (inner.left=${inner.left}, outer.left=${outer.left})",
             inner.left >= outer.left - EPSILON,
@@ -98,7 +103,7 @@ class ReviewCardLongTextTest {
     }
 
     private companion object {
-        const val EPSILON = 0.5f
+        val EPSILON = 0.5.dp
         const val LONG_WORD_UNIT = "Достопримечательность"
         const val UNBREAKABLE_WORD_REPEATS = 8
         const val PHRASE_WORD_COUNT = 20

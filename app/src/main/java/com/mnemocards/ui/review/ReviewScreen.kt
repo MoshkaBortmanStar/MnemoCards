@@ -3,8 +3,10 @@ package com.mnemocards.ui.review
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -74,6 +76,8 @@ fun ReviewScreen(
                 )
                 // Оформление карточки и кнопок живёт в ReviewCard/RatingBar —
                 // экран только раскладывает их и передаёт состояние.
+                // Оформление карточки и кнопок живёт в ReviewCard/RatingBar —
+                // экран только раскладывает их и передаёт состояние.
                 ReviewCard(
                     front = uiState.front,
                     back = uiState.back,
@@ -83,20 +87,36 @@ fun ReviewScreen(
                         .weight(1f)
                         .padding(horizontal = 16.dp),
                 )
+                // Зона кнопок зарезервирована постоянной высотой: после оценки
+                // кнопки сменяются заглушкой, карточка не растягивается вниз —
+                // «хвост» double-tap по бывшей кнопке не переворачивает
+                // следующую карточку (S12).
                 if (uiState.flipped) {
                     RatingBar(
                         onRate = onGrade,
                         modifier = Modifier.padding(horizontal = 16.dp),
                     )
+                } else {
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(RatingBarReservedHeight),
+                    )
                 }
             }
 
-            ReviewUiState.Finished -> CenteredContent(paddingModifier(padding)) {
-                Text(
-                    text = "На сегодня всё",
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Button(onClick = onBack, modifier = Modifier.padding(top = 16.dp)) {
+            ReviewUiState.Finished -> Column(
+                modifier = paddingModifier(padding),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                SessionDone(modifier = Modifier.weight(1f))
+                Button(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 16.dp),
+                ) {
                     Text("Назад к колодам")
                 }
             }
@@ -122,3 +142,10 @@ private fun paddingModifier(padding: androidx.compose.foundation.layout.PaddingV
     Modifier
         .fillMaxSize()
         .padding(padding)
+
+/**
+ * Резерв высоты зоны кнопок оценки с запасом: реальная [com.mnemocards.ui.review.RatingBar]
+ * (~48dp) всегда меньше — после оценки карточка не вырастает вниз, и «хвост»
+ * double-tap по бывшей кнопке попадает в некликабельную заглушку (S12).
+ */
+private val RatingBarReservedHeight = 64.dp
