@@ -1,26 +1,20 @@
 package com.mnemocards.ui.review
 
-import android.content.Context
-import androidx.lifecycle.SavedStateHandle
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
-import com.mnemocards.data.db.DatabaseSeeder
-import com.mnemocards.data.db.DeckDao
 import com.mnemocards.data.db.MnemoCardsDatabase
-import com.mnemocards.data.repository.DeckRepositoryImpl
-import com.mnemocards.domain.model.Deck
+import com.mnemocards.data.repository.RoomCardRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
-import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -29,39 +23,23 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Тесты ViewModel сессии повторения на данных Room
- * (T10/T11, change `add-offline-storage`).
- *
- * Дополнительно покрывает сценарии T16:
- * - S10 — сессия полностью офлайн: карточки читаются из Room,
- *   сетевые вызовы не выполняются;
- * - S12 — полный проход сессии не изменяет данные репозитория:
- *   счётчик карточек колоды остаётся равным 5.
- *
- * Загрузка карточек идёт через Room на реальном IO-диспатчере, поэтому
- * тесты ждут целевое состояние хелпером [awaitState] (реальное время).
+ * S22/S23: сессия тренировки читает колоду из Room через Flow —
+ * новая карточка входит в сессию, правка текста отражается в открытой
+ * сессии без её пересоздания.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class ReviewViewModelTest {
 
-    private val dispatcher = UnconfinedTestDispatcher()
-
     private lateinit var db: MnemoCardsDatabase
-    private lateinit var deckDao: DeckDao
-    private lateinit var repository: DeckRepositoryImpl
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(dispatcher)
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        db = Room.inMemoryDatabaseBuilder(context, MnemoCardsDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
-        deckDao = db.deckDao()
-        repository = DeckRepositoryImpl(deckDao)
-        kotlinx.coroutines.runBlocking { DatabaseSeeder(deckDao).seedIfNeeded() }
+        db = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(),
+            MnemoCardsDatabase::class.java,
+        ).allowMainThreadQueries().build()
     }
 
     @After
@@ -70,116 +48,80 @@ class ReviewViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun viewModel(deckId: Long = 1L): ReviewViewModel =
-        ReviewViewModel(
-            savedStateHandle = SavedStateHandle(mapOf("deckId" to deckId)),
-            repository = repository,
+    // S22: добавленная карточка входит в сессию вместе с остальными.
+    @Test
+    fun newCard_entersReviewSession() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val repository = RoomCardRepository(db.deckDao(), db.cardDao())
+        val deckId = db.deckDao().insertDeck(
+            com.mnemocards.data.db.DeckEntity(name = "Английский базовый"),
         )
+        repository.addCard(deckId, "hello", "привет")
+        repository.addCard(deckId, "cat", "кошка")
 
-    /**
-     * S5/S10. GIVEN в Room колода с 5 карточками.
-     * WHEN открывается тренировка (без сети).
-     * THEN сессия загружает все карточки из Room по идентификатору
-     * выбранной колоды; показана лицевая сторона первой карточки.
-     */
-    @Test
-    fun session_loadsCardsFromRoom_forSelectedDeck() = runTest(dispatcher) {
-        val vm = viewModel()
+        val viewModel = ReviewViewModel(deckId, repository)
 
-        val state = awaitState(vm) { it is ReviewUiState.Session } as ReviewUiState.Session
-        assertEquals(5, state.total)
-        assertEquals("cat", state.front)
-    }
+        viewModel.uiState.test {
+            // initialValue (isFinished=true до первой эмиссии Room) — проглатываем.
+            awaitItem()
 
-    /**
-     * S12. GIVEN колода с 5 карточками.
-     * WHEN пользователь полностью проходит сессию (перевороты,
-     * четыре оценки, терминальный экран).
-     * THEN данные репозитория не изменяются: счётчик карточек колоды
-     * в БД по-прежнему равен 5, список колод показывает «5».
-     */
-    @Test
-    fun fullSession_doesNotChangeRepositoryData() = runTest(dispatcher) {
-        val vm = viewModel()
-        awaitState(vm) { it is ReviewUiState.Session }
+            // Новые сверху: только что добавленная «cat» — первая.
+            val first = awaitItem()
+            assertEquals("cat", first.front)
+            assertFalse(first.isFinished)
 
-        repeat(5) {
-            vm.onFlip()
-            vm.onGrade(ReviewGrade.entries[it % ReviewGrade.entries.size])
-        }
+            // Оценка — переход к следующей карточке колоды.
+            viewModel.rate()
+            assertEquals("hello", awaitItem().front)
 
-        assertEquals(ReviewUiState.Finished, vm.uiState.value)
-        assertEquals(5, deckDao.cardCountForDeck(1L))
-
-        val decks = repository.observeDecks().firstValue()
-        assertEquals(5, decks.first { it.id == 1L }.cardCount)
-    }
-
-    /**
-     * S6/S12. GIVEN сессия завершена («на сегодня всё»).
-     * WHEN выполняется «назад».
-     * THEN эмитится событие навигации, данные не тронуты.
-     */
-    @Test
-    fun onBack_fromFinished_emitsNavigateBack() = runTest(dispatcher) {
-        val vm = viewModel()
-        awaitState(vm) { it is ReviewUiState.Session }
-        repeat(5) {
-            vm.onFlip()
-            vm.onGrade(ReviewGrade.GOOD)
-        }
-
-        vm.navigateBack.test {
-            vm.onBack()
-            assertEquals(Unit, awaitItem())
-            cancelAndIgnoreRemainingEvents()
-        }
-        assertEquals(5, deckDao.cardCountForDeck(1L))
-    }
-
-    /**
-     * S8 (аналог 404). GIVEN колоды с данным идентификатором в БД нет.
-     * WHEN открывается тренировка.
-     * THEN состояние NotFound и событие возврата к списку.
-     */
-    @Test
-    fun missingDeck_resultsInNotFoundAndNavigateBack() = runTest(dispatcher) {
-        val vm = viewModel(deckId = 999L)
-
-        assertEquals(
-            ReviewUiState.NotFound,
-            awaitState(vm) { it is ReviewUiState.NotFound },
-        )
-        vm.navigateBack.test {
-            assertEquals(Unit, awaitItem())
+            // Следующая оценка завершает сессию.
+            viewModel.rate()
+            assertTrue(awaitItem().isFinished)
             cancelAndIgnoreRemainingEvents()
         }
     }
 
-    /**
-     * Ждёт состояние, удовлетворяющее предикату, в реальном времени:
-     * загрузка карточек выполняется Room на IO-диспатчере, а не на
-     * виртуальных часах [runTest].
-     */
-    private suspend fun awaitState(
-        vm: ReviewViewModel,
-        predicate: (ReviewUiState) -> Boolean,
-    ): ReviewUiState = withContext(Dispatchers.Default) {
-        val deadline = System.currentTimeMillis() + AWAIT_TIMEOUT_MS
-        while (System.currentTimeMillis() < deadline) {
-            vm.uiState.value.let { state ->
-                if (predicate(state)) return@withContext state
-            }
-            Thread.sleep(50)
+    // S23: правка текста карточки отражается в открытой сессии.
+    @Test
+    fun editedCard_updatesOpenSession_withoutRecreation() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val repository = RoomCardRepository(db.deckDao(), db.cardDao())
+        val deckId = db.deckDao().insertDeck(
+            com.mnemocards.data.db.DeckEntity(name = "Английский базовый"),
+        )
+        repository.addCard(deckId, "cat", "кошка")
+
+        val viewModel = ReviewViewModel(deckId, repository)
+
+        viewModel.uiState.test {
+            // initialValue (isFinished=true до первой эмиссии Room) — проглатываем.
+            awaitItem()
+            assertEquals("cat", awaitItem().front)
+
+            val card = repository.observeCards(deckId).first().first()
+            repository.updateCard(card.id, "a cat", card.back)
+
+            val updated = awaitItem()
+            assertEquals("a cat", updated.front)
+            assertEquals("кошка", updated.back)
+            cancelAndIgnoreRemainingEvents()
         }
-        error("состояние не достигнуто за ${AWAIT_TIMEOUT_MS} мс: ${vm.uiState.value}")
     }
 
-    private companion object {
-        const val AWAIT_TIMEOUT_MS = 10_000L
+    // Пустая колода — терминальное состояние, приложение не падает.
+    @Test
+    fun emptyDeck_immediatelyFinished() = runTest {
+        Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
+        val repository = RoomCardRepository(db.deckDao(), db.cardDao())
+        val deckId = db.deckDao().insertDeck(
+            com.mnemocards.data.db.DeckEntity(name = "Пустая"),
+        )
+
+        val viewModel = ReviewViewModel(deckId, repository)
+
+        viewModel.uiState.test {
+            assertTrue(awaitItem().isFinished)
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 }
-
-/** Хелп: первое успешное значение Flow<Result<List<Deck>>>. */
-private suspend fun <T> Flow<Result<List<T>>>.firstValue(): List<T> =
-    firstOrNull { it.isSuccess }?.getOrThrow() ?: error("нет успешного значения")
