@@ -102,11 +102,25 @@ code_generation:
   test_first: true
 
   # Команда прогона тестов ПОСЛЕ записи файлов.
-  # Только JVM-тесты (app/src/test) — инструментальные из androidTest
-  # требуют запущенного эмулятора, автоматом их не гоняем:
-  #   ./gradlew connectedAndroidTest  — запускать руками при живом эмуляторе.
+  #
+  # ./gradlew test                      — JVM-тесты (app/src/test) + Robolectric
+  # ./gradlew compileDebugAndroidTestKotlin
+  #                                     — ТОЛЬКО компиляция инструментальных
+  #                                       тестов (app/src/androidTest).
+  #                                       Устройство не нужно.
+  #
+  # Компиляция androidTest здесь не для галочки: без неё кодоген не видит,
+  # что сменил API и оставил инструментальные тесты на старом. Так в change-001
+  # уехал несуществующий импорт androidx.compose.ui.test.Position, а change-002
+  # сменил сигнатуру ReviewScreen и не обновил тесты — оба раза движок
+  # отрапортовал «тесты зелёные», потому что androidTest не компилировался.
+  #
+  # ВЫПОЛНЯТЬ инструментальные тесты автоматом нельзя — нужен эмулятор,
+  # на машине без устройства кодоген падал бы всегда. Руками:
+  #   ./gradlew connectedAndroidTest
+  #
   # Разовое отключение: флаг --no-test.
-  test_command: "./gradlew test"
+  test_command: "./gradlew test compileDebugAndroidTestKotlin"
 
   # Если изменение живёт в своём worktree и тесты позеленели — движок
   # сам коммитит результат, чтобы в основном проекте было что мерджить.
