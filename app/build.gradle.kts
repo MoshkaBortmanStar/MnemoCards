@@ -77,6 +77,7 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.turbine)
+    testImplementation(libs.androidx.test.core.ktx)
     testImplementation(libs.androidx.room.testing)
     testImplementation(libs.androidx.junit)
     testImplementation(libs.androidx.navigation.testing)

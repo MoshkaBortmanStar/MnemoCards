@@ -213,6 +213,7 @@ class CardRepositoryTest {
         private val boom = RuntimeException("corrupted database")
 
         override suspend fun insertCard(card: CardEntity): Long = throw boom
+        override suspend fun insertAll(cards: List<CardEntity>): List<Long> = throw boom
         override suspend fun updateCard(card: CardEntity): Int = onUpdate(card)
         override suspend fun deleteCard(id: Long): Int = onDelete(id)
         override fun observeCardsByDeck(deckId: Long): Flow<List<CardEntity>> = throw boom

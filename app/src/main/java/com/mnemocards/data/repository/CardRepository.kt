@@ -21,6 +21,14 @@ sealed interface CardOperationResult {
 }
 
 /**
+ * Результат импорта карточек из CSV (change add-csv-import-export).
+ */
+sealed interface CardImportResult {
+    data class Imported(val added: Int) : CardImportResult
+    data object DeckNotFound : CardImportResult
+}
+
+/**
  * Офлайн-репозиторий карточек. Room — единый источник данных,
  * UI наблюдает изменения через Flow.
  */
@@ -48,6 +56,21 @@ interface CardRepository {
     suspend fun updateCard(cardId: Long, front: String, back: String): CardOperationResult
 
     suspend fun deleteCard(cardId: Long): CardOperationResult
+
+    /**
+     * Экспорт колоды в CSV (change-006): только тексты сторон карточек —
+     * идентификаторы и параметры SRS не выгружаются (S5, S25).
+     * `null` — колода не найдена.
+     */
+    suspend fun exportCardTexts(deckId: Long): List<Pair<String, String>>?
+
+    /**
+     * Импорт карточек из CSV (change-006): все валидные строки добавляются
+     * как новые без дедупликации, атомарно (S9, S15, S22); несуществующая
+     * колода — [CardImportResult.DeckNotFound] (S21); ошибка БД пробрасывается
+     * наружу, вставка откачена (S22).
+     */
+    suspend fun importCards(deckId: Long, cards: List<Pair<String, String>>): CardImportResult
 }
 
 class RoomCardRepository(
@@ -119,5 +142,45 @@ class RoomCardRepository(
         }
     } catch (e: Exception) {
         CardOperationResult.Error(e)
+    }
+
+    /**
+     * Экспорт (S5, S25): только тексты сторон — идентификаторы и параметры
+     * SRS в CSV не попадают. `null` — колода не найдена.
+     */
+    override suspend fun exportCardTexts(deckId: Long): List<Pair<String, String>>? {
+        if (!cardDao.deckExists(deckId)) return null
+        return cardDao.getCardsByDeck(deckId).map { it.front to it.back }
+    }
+
+    /**
+     * Импорт (S9, S15, S16, S21, S22): все валидные строки — новые карточки
+     * без дедупликации; состояние «новой карточки» как при ручном создании
+     * (дефолты SM-2, dueDate = «сейчас» — готовы к повторению сразу, S14).
+     * createdAt строго возрастает внутри колоды (зеркалит [addCard]),
+     * импортированный пакет встаёт сверху списка в порядке файла.
+     * Ошибка БД пробрасывается наружу, транзакция DAO откатывает пакет.
+     */
+    override suspend fun importCards(
+        deckId: Long,
+        cards: List<Pair<String, String>>,
+    ): CardImportResult {
+        val max = cardDao.maxCreatedAtInDeck(deckId) ?: 0L
+        val now = System.currentTimeMillis()
+        val entities = cards.mapIndexed { index, (front, back) ->
+            val createdAt = if (now > max) now + index else max + 1 + index
+            CardEntity(
+                deckId = deckId,
+                front = front,
+                back = back,
+                createdAt = createdAt,
+                dueDate = now,
+            )
+        }
+        return if (cardDao.insertImportedCards(deckId, entities)) {
+            CardImportResult.Imported(entities.size)
+        } else {
+            CardImportResult.DeckNotFound
+        }
     }
 }

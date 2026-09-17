@@ -1,5 +1,8 @@
 package com.mnemocards.ui.deckcontent
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,20 +26,25 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.mnemocards.R
 import com.mnemocards.data.db.CardEntity
 
 /**
@@ -44,21 +52,63 @@ import com.mnemocards.data.db.CardEntity
  * Stateless по бизнес-данным: всё состояние приходит из [DeckContentUiState],
  * события текут вверх через коллбеки (UDF). Локально хранится только
  * состояние диалога подтверждения удаления (S15).
+ *
+ * CSV-перенос (change-006): действия «Экспорт»/«Импорт» в панели приложения
+ * открывают системные диалоги SAF (S1); результат показывается снекбаром
+ * (S2, S9, S11–S19).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeckContentScreen(
     state: DeckContentUiState,
+    transferMessage: TransferMessage = TransferMessage.Idle,
     onBack: () -> Unit,
     onAddCard: () -> Unit,
     onEditCard: (Long) -> Unit,
     onDeleteCard: (Long) -> Unit,
     onRetry: () -> Unit,
+    onExportTarget: (Uri) -> Unit = {},
+    onImportFile: (Uri) -> Unit = {},
+    onTransferMessageShown: () -> Unit = {},
 ) {
     // S15: карточка, ожидающая подтверждения удаления; до выбора остаётся в списке.
     var pendingDelete by remember { mutableStateOf<CardEntity?>(null) }
 
+    // S22: системные диалоги SAF, без разрешений хранилища; отмена диалога
+    // не вызывает коллбэк — состояние экрана не меняется (S7, S20).
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv"),
+        onResult = { uri -> uri?.let(onExportTarget) },
+    )
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri -> uri?.let(onImportFile) },
+    )
+
+    // Итог переноса — снекбаром; тексты сообщений живут в ресурсах.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val messageText = when (val message = transferMessage) {
+        TransferMessage.Idle -> null
+        TransferMessage.FileSaved -> stringResource(R.string.msg_file_saved)
+        is TransferMessage.ImportSummary -> stringResource(
+            R.string.msg_import_summary,
+            message.added,
+            message.skipped,
+        )
+        TransferMessage.SaveFailed -> stringResource(R.string.msg_save_failed)
+        TransferMessage.NotCsv -> stringResource(R.string.msg_not_csv)
+        TransferMessage.DeckNotFound -> stringResource(R.string.msg_deck_not_found)
+        TransferMessage.ImportFailed -> stringResource(R.string.msg_import_failed)
+    }
+    LaunchedEffect(transferMessage) {
+        messageText?.let {
+            snackbarHostState.showSnackbar(it)
+            onTransferMessageShown()
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             // Панель сливается с фоном: выделяться должны карточки, а не TopAppBar.
             TopAppBar(
@@ -78,6 +128,41 @@ fun DeckContentScreen(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Назад",
                         )
+                    }
+                },
+                // S1: действия CSV-переноса доступны на экране колоды.
+                actions = {
+                    TextButton(
+                        onClick = {
+                            // S2: предложенное имя файла — название колоды.
+                            val title = when (state) {
+                                is DeckContentUiState.Content -> state.title
+                                is DeckContentUiState.Empty -> state.title
+                                else -> "deck"
+                            }
+                            exportLauncher.launch("$title.csv")
+                        },
+                    ) {
+                        Text(stringResource(R.string.deck_content_export))
+                    }
+                    TextButton(
+                        // Разные провайдеры отдают CSV под разными MIME-типами
+                        // (text/plain, octet-stream, как Excel) — фильтр шире,
+                        // чтобы файл был виден в пикере; не-CSV отклонится
+                        // при разборе (TransferMessage.NotCsv).
+                        onClick = {
+                            importLauncher.launch(
+                                arrayOf(
+                                    "text/csv",
+                                    "text/comma-separated-values",
+                                    "text/plain",
+                                    "application/vnd.ms-excel",
+                                    "application/octet-stream",
+                                )
+                            )
+                        },
+                    ) {
+                        Text(stringResource(R.string.deck_content_import))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
