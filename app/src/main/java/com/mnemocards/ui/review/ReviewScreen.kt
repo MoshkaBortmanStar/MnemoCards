@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,6 +46,7 @@ fun ReviewScreen(
     onFlip: () -> Unit,
     onRate: () -> Unit,
     onBack: () -> Unit,
+    onExit: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -73,11 +75,12 @@ fun ReviewScreen(
                 .padding(16.dp),
         ) {
             if (state.isFinished) {
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f),
-                    contentAlignment = Alignment.Center,
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         text = "На сегодня всё",
@@ -85,6 +88,13 @@ fun ReviewScreen(
                         color = MaterialTheme.colorScheme.onBackground,
                         textAlign = TextAlign.Center,
                     )
+                    // Выход из завершённой сессии сразу к списку колод.
+                    Button(
+                        onClick = onExit,
+                        modifier = Modifier.padding(top = 24.dp),
+                    ) {
+                        Text("К списку колод", maxLines = 1)
+                    }
                 }
             } else {
                 // Карточка: Surface цвета surfaceVariant, скруглённая,
@@ -117,6 +127,8 @@ fun ReviewScreen(
                 }
 
                 // Четыре кнопки оценки — в один ряд, прижаты к низу под карточкой.
+                // contentPadding уже дефолтных 24dp и maxLines = 1: короткие
+                // слова («Хорошо», «Трудно») не переносятся на вторую строку.
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -130,9 +142,10 @@ fun ReviewScreen(
                             containerColor = Red,
                             contentColor = Ink,
                         ),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text("Забыл")
+                        Text("Забыл", maxLines = 1)
                     }
                     Button(
                         onClick = onRate,
@@ -141,9 +154,10 @@ fun ReviewScreen(
                             containerColor = Orange,
                             contentColor = Ink,
                         ),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text("Трудно")
+                        Text("Трудно", maxLines = 1)
                     }
                     Button(
                         onClick = onRate,
@@ -152,9 +166,10 @@ fun ReviewScreen(
                             containerColor = Blue,
                             contentColor = Ink,
                         ),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text("Хорошо")
+                        Text("Хорошо", maxLines = 1)
                     }
                     Button(
                         onClick = onRate,
@@ -163,9 +178,10 @@ fun ReviewScreen(
                             containerColor = Green,
                             contentColor = Ink,
                         ),
+                        contentPadding = PaddingValues(horizontal = 8.dp),
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text("Легко")
+                        Text("Легко", maxLines = 1)
                     }
                 }
             }

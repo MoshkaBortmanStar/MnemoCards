@@ -166,6 +166,13 @@ fun AppNavHost(
                 onFlip = viewModel::flip,
                 onRate = viewModel::rate,
                 onBack = { navController.popBackStack() },
+                // Завершённая сессия: выход сразу к списку колод, а не к содержимому.
+                onExit = {
+                    navController.popBackStack(
+                        route = Routes.DECKS,
+                        inclusive = false,
+                    )
+                },
             )
         }
     }
