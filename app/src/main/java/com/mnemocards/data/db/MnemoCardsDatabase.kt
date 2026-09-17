@@ -7,13 +7,17 @@ import androidx.room.RoomDatabase
 
 /**
  * Локальная БД (offline-first): Room — single source of truth для UI.
- * version 2 — после добавления поля `createdAt` в CardEntity
- * (миграция MIGRATION_1_2, см. Migrations.kt).
+ *
+ * version 3 — после добавления полей планирования SM-2 в CardEntity
+ * (миграция MIGRATION_2_3, см. Migrations.kt); история версий:
+ * v2 — createdAt (MIGRATION_1_2), v3 — параметры SM-2 (MIGRATION_2_3).
+ *
+ * exportSchema = true: JSON схем нужны MigrationTestHelper (S28).
  */
 @Database(
     entities = [DeckEntity::class, CardEntity::class],
-    version = 2,
-    exportSchema = false,
+    version = 3,
+    exportSchema = true,
 )
 abstract class MnemoCardsDatabase : RoomDatabase() {
 
@@ -31,7 +35,7 @@ abstract class MnemoCardsDatabase : RoomDatabase() {
                     MnemoCardsDatabase::class.java,
                     "mnemocards.db",
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(*ALL_MIGRATIONS)
                     .build()
                     .also { INSTANCE = it }
             }

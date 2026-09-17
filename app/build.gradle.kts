@@ -39,12 +39,21 @@ android {
             isIncludeAndroidResources = true
         }
     }
+    sourceSets {
+        // JSON схем Room — как assets androidTest: их читает MigrationTestHelper (S28).
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 kotlin {
     // Тесты (Robolectric/ASM) запускаются на тулчейне JDK 17: класс-файлы
     // JDK 25 (major 69) не читаются ASM-инструментацией Robolectric.
     jvmToolchain(17)
+}
+
+ksp {
+    // Экспорт схем Room для MigrationTestHelper (T5).
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -77,6 +86,7 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.room.testing)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

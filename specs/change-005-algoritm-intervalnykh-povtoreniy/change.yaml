@@ -15,13 +15,52 @@ prompt: 'Алгоритм интервальных повторений SM-2 с 
   эндпоинтов и OpenAPI-контракта не появляется, сценарии описывай в терминах действий
   пользователя и состояний экрана.'
 created: 2026-09-17 16:24
-updated: 2026-09-17 16:44
+updated: 2026-09-17 16:59
 mode: llm
 status:
   proposal: generated
   spec-bdd: generated
   tasks: generated
+  code-generation: generated
 git:
   branch: change/005-algoritm-intervalnykh-povtoreniy
   worktree: /Users/mikhailbutorin/AndroidStudioProjects/MnemoCards-wt-005
   base_branch: feature/feature-001
+codegen:
+  batch_size: 3
+  task_count: 21
+  done_batches: 7
+  files:
+  - MAIN.md
+  - app/build.gradle.kts
+  - app/schemas/com.mnemocards.data.MnemoCardsDatabase/1.json
+  - app/src/androidTest/java/com/mnemocards/data/CardDaoTest.kt
+  - app/src/androidTest/java/com/mnemocards/data/CardRepositoryTest.kt
+  - app/src/androidTest/java/com/mnemocards/data/DatabaseSeederTest.kt
+  - app/src/androidTest/java/com/mnemocards/data/Migration1to2Test.kt
+  - app/src/main/java/com/mnemocards/data/CardCountRepository.kt
+  - app/src/main/java/com/mnemocards/data/CardEntity.kt
+  - app/src/main/java/com/mnemocards/data/CardRepository.kt
+  - app/src/main/java/com/mnemocards/data/DatabaseSeeder.kt
+  - app/src/main/java/com/mnemocards/data/Migrations.kt
+  - app/src/main/java/com/mnemocards/data/MnemoCardsDatabase.kt
+  - app/src/main/java/com/mnemocards/data/db/CardDao.kt
+  - app/src/main/java/com/mnemocards/data/db/DeckDao.kt
+  - app/src/main/java/com/mnemocards/data/db/DeckWithCardCounts.kt
+  - app/src/main/java/com/mnemocards/domain/model/Card.kt
+  - app/src/main/java/com/mnemocards/domain/model/DeckCounts.kt
+  - app/src/main/java/com/mnemocards/domain/scheduler/ReviewGrade.kt
+  - app/src/main/java/com/mnemocards/domain/scheduler/SchedulingState.kt
+  - app/src/main/java/com/mnemocards/domain/scheduler/Sm2Scheduler.kt
+  - app/src/main/java/com/mnemocards/ui/decklist/DeckListScreen.kt
+  - app/src/main/java/com/mnemocards/ui/decklist/DeckListViewModel.kt
+  - app/src/main/java/com/mnemocards/ui/decklist/DeckListViewModelFactoryProvider.kt
+  - app/src/main/java/com/mnemocards/ui/review/IntervalLabel.kt
+  - app/src/main/java/com/mnemocards/ui/review/ReviewScreen.kt
+  - app/src/main/java/com/mnemocards/ui/review/ReviewUiState.kt
+  - app/src/main/java/com/mnemocards/ui/review/ReviewViewModel.kt
+  - app/src/main/java/com/mnemocards/ui/review/ReviewViewModelFactoryProvider.kt
+  - app/src/test/java/com/mnemocards/domain/scheduler/Sm2SchedulerTest.kt
+  - app/src/test/java/com/mnemocards/ui/decklist/DeckListViewModelTest.kt
+  - app/src/test/java/com/mnemocards/ui/review/IntervalLabelTest.kt
+  - app/src/test/java/com/mnemocards/ui/review/ReviewViewModelTest.kt

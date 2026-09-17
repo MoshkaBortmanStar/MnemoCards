@@ -216,9 +216,22 @@ class CardRepositoryTest {
         override suspend fun updateCard(card: CardEntity): Int = onUpdate(card)
         override suspend fun deleteCard(id: Long): Int = onDelete(id)
         override fun observeCardsByDeck(deckId: Long): Flow<List<CardEntity>> = throw boom
+        override suspend fun getCardsByDeck(deckId: Long): List<CardEntity> = throw boom
         override suspend fun getCardById(id: Long): CardEntity? = onGet(id)
         override fun observeCardCountByDeck(deckId: Long): Flow<Int> = throw boom
         override suspend fun maxCreatedAtInDeck(deckId: Long): Long? = throw boom
+        override suspend fun getDueCards(deckId: Long, now: Long): List<CardEntity> = throw boom
+        override fun countDue(deckId: Long, now: Long): Flow<Int> = throw boom
+        override fun observeDeckCounts(now: Long): Flow<List<com.mnemocards.data.db.DeckWithCardCounts>> =
+            throw boom
+        override suspend fun deckExists(deckId: Long): Boolean = throw boom
+        override suspend fun updateScheduling(
+            cardId: Long,
+            easinessFactor: Double,
+            repetitionNumber: Int,
+            intervalDays: Int,
+            dueDate: Long,
+        ): Unit = throw boom
     }
 
     private class NoopDeckDao : DeckDao {

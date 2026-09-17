@@ -2,62 +2,64 @@ package com.mnemocards.data
 
 import com.mnemocards.data.db.CardDao
 import com.mnemocards.data.db.CardEntity
-import kotlinx.coroutines.flow.Flow
+import com.mnemocards.domain.model.Card
+import com.mnemocards.domain.scheduler.ReviewGrade
+import com.mnemocards.domain.scheduler.SchedulingState
+import com.mnemocards.domain.scheduler.Sm2Scheduler
 
 /**
- * Офлайн-репозиторий карточек. Room — единый источник данных,
- * UI наблюдает изменения через Flow.
+ * Репозиторий карточек поверх Room-DAO и планировщика SM-2
+ * (change add-sm2-scheduling). Маппинг entity ↔ domain живёт здесь —
+ * сущности наружу из `data` не выходят.
  */
 interface CardRepository {
 
-    /** Карточки колоды, новые сверху (createdAt DESC). */
-    fun observeCardsByDeck(deckId: Long): Flow<List<CardEntity>>
+    /** Назревшие карточки колоды (dueDate <= now) с параметрами планирования (S16). */
+    suspend fun dueCards(deckId: Long, now: Long): List<Card>
 
-    /** Счётчик карточек колоды — обновляется автоматически (S20–S21). */
-    fun observeCardCount(deckId: Long): Flow<Int>
+    /** Применяет оценку [grade] и записывает результат SM-2 в Room (S1–S8). */
+    suspend fun applyGrade(card: Card, grade: ReviewGrade, now: Long)
 
-    suspend fun getCardById(id: Long): CardEntity?
-
-    /** Создаёт карточку; createdAt гарантирует позицию «первой сверху». */
-    suspend fun addCard(deckId: Long, front: String, back: String): Long
-
-    /**
-     * Обновляет существующую карточку.
-     * @return false, если записи уже нет (404-аналог, S25) —
-     *         update несуществующей записи не превращается в insert.
-     */
-    suspend fun updateCard(card: CardEntity): Boolean
-
-    /** @return false, если записи уже нет (404-аналог). */
-    suspend fun deleteCard(cardId: Long): Boolean
+    /** Существование колоды — состояние NotFound при устаревшем id (S32). */
+    suspend fun deckExists(deckId: Long): Boolean
 }
 
 class RoomCardRepository(
     private val cardDao: CardDao,
 ) : CardRepository {
 
-    override fun observeCardsByDeck(deckId: Long): Flow<List<CardEntity>> =
-        cardDao.observeCardsByDeck(deckId)
+    override suspend fun dueCards(deckId: Long, now: Long): List<Card> =
+        cardDao.getDueCards(deckId, now).map { it.toDomain() }
 
-    override fun observeCardCount(deckId: Long): Flow<Int> =
-        cardDao.observeCardCountByDeck(deckId)
-
-    override suspend fun getCardById(id: Long): CardEntity? =
-        cardDao.getCardById(id)
-
-    override suspend fun addCard(deckId: Long, front: String, back: String): Long {
-        // Строго возрастающий createdAt внутри колоды: новые всегда выше старых.
-        val max = cardDao.maxCreatedAtInDeck(deckId) ?: 0L
-        val now = System.currentTimeMillis()
-        val createdAt = if (now > max) now else max + 1
-        return cardDao.insertCard(
-            CardEntity(deckId = deckId, front = front, back = back, createdAt = createdAt)
+    override suspend fun applyGrade(card: Card, grade: ReviewGrade, now: Long) {
+        val next = Sm2Scheduler.next(card.toSchedulingState(), grade, now)
+        cardDao.updateScheduling(
+            cardId = card.id,
+            easinessFactor = next.easinessFactor,
+            repetitionNumber = next.repetitionNumber,
+            intervalDays = next.intervalDays,
+            dueDate = next.dueDate,
         )
     }
 
-    override suspend fun updateCard(card: CardEntity): Boolean =
-        cardDao.updateCard(card) > 0
+    override suspend fun deckExists(deckId: Long): Boolean =
+        cardDao.deckExists(deckId)
 
-    override suspend fun deleteCard(cardId: Long): Boolean =
-        cardDao.deleteCard(cardId) > 0
+    private fun CardEntity.toDomain(): Card = Card(
+        id = id,
+        deckId = deckId,
+        front = front,
+        back = back,
+        easinessFactor = easinessFactor,
+        repetitionNumber = repetitionNumber,
+        intervalDays = intervalDays,
+        dueDate = dueDate,
+    )
+
+    private fun Card.toSchedulingState(): SchedulingState = SchedulingState(
+        easinessFactor = easinessFactor,
+        repetitionNumber = repetitionNumber,
+        intervalDays = intervalDays,
+        dueDate = dueDate,
+    )
 }

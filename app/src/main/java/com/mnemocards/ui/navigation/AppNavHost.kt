@@ -11,9 +11,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.mnemocards.data.RoomDeckCountsRepository
 import com.mnemocards.data.RoomDeckRepository
 import com.mnemocards.data.db.MnemoCardsDatabase
 import com.mnemocards.data.repository.RoomCardRepository
+import com.mnemocards.data.RoomCardRepository as ReviewCardRepository
 import com.mnemocards.ui.cardform.CardFormEvent
 import com.mnemocards.ui.cardform.CardFormScreen
 import com.mnemocards.ui.cardform.CardFormViewModel
@@ -62,7 +64,10 @@ fun AppNavHost(
     ) {
         composable(Routes.DECKS) {
             val viewModel: DeckListViewModel = viewModel {
-                DeckListViewModel(RoomDeckRepository(db.deckDao()))
+                DeckListViewModel(
+                    deckRepository = RoomDeckRepository(db.deckDao()),
+                    countsRepository = RoomDeckCountsRepository(db.cardDao()),
+                )
             }
             DeckListScreen(
                 viewModel = viewModel,
@@ -159,14 +164,11 @@ fun AppNavHost(
             ) {
                 ReviewViewModel(
                     deckId = deckId,
-                    repository = RoomCardRepository(db.deckDao(), db.cardDao()),
+                    repository = ReviewCardRepository(db.cardDao()),
                 )
             }
-            val state by viewModel.uiState.collectAsStateWithLifecycle()
             ReviewScreen(
-                state = state,
-                onFlip = viewModel::flip,
-                onRate = viewModel::rate,
+                viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 // Завершённая сессия: выход сразу к списку колод, а не к содержимому.
                 onExit = {
