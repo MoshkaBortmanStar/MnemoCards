@@ -2,17 +2,23 @@ package com.mnemocards.ui.review
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -21,131 +27,148 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.mnemocards.ui.theme.Blue
+import com.mnemocards.ui.theme.Green
+import com.mnemocards.ui.theme.Ink
+import com.mnemocards.ui.theme.Orange
+import com.mnemocards.ui.theme.Red
 
 /**
- * Stateless-экран сессии повторения (T11, change `add-offline-storage`).
- *
- * Состояние и колбэки приходят параметрами (UDF); бизнес-логики в Compose нет.
- * Логика лицевая сторона → переворот → четыре оценки → «на сегодня всё»
- * сохранена из change `add-review-screen`; данные — из Room.
+ * Экран сессии повторения (оформление принято пользователем вручную
+ * и воспроизводится как есть). Stateless по бизнес-данным: состояние
+ * приходит из [ReviewUiState], события текут вверх через коллбеки (UDF).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReviewScreen(
-    uiState: ReviewUiState,
+    state: ReviewUiState,
     onFlip: () -> Unit,
-    onGrade: (ReviewGrade) -> Unit,
+    onRate: () -> Unit,
     onBack: () -> Unit,
 ) {
     Scaffold(
         topBar = {
+            // Панель сливается с фоном: выделяться должна карточка, а не TopAppBar.
             TopAppBar(
                 title = { Text("Тренировка") },
-                // Шапка сливается с фоном: выделяться должна карточка, не панель.
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Назад",
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
                 ),
             )
         },
         containerColor = MaterialTheme.colorScheme.background,
-    ) { padding ->
-        when (uiState) {
-            ReviewUiState.Loading -> CenteredContent(paddingModifier(padding)) {
-                CircularProgressIndicator()
-            }
-
-            ReviewUiState.NotFound -> CenteredContent(paddingModifier(padding)) {
-                Text("Колода не найдена")
-                Button(onClick = onBack, modifier = Modifier.padding(top = 16.dp)) {
-                    Text("Назад")
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(16.dp),
+        ) {
+            if (state.isFinished) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "На сегодня всё",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        textAlign = TextAlign.Center,
+                    )
                 }
-            }
+            } else {
+                // Карточка: Surface цвета surfaceVariant, скруглённая,
+                // с боковыми отступами и weight(1f) — занимает свободную высоту.
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clickable(onClick = onFlip),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        // Цвет onSurfaceVariant (бирюзовый) берётся автоматически.
+                        Text(
+                            text = if (state.isRevealed) {
+                                state.back.orEmpty()
+                            } else {
+                                state.front.orEmpty()
+                            },
+                            style = MaterialTheme.typography.headlineMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
 
-            is ReviewUiState.Session -> Column(
-                modifier = paddingModifier(padding),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
-            ) {
-                Text(
-                    text = "${uiState.position} / ${uiState.total}",
-                    style = MaterialTheme.typography.labelLarge,
+                // Четыре кнопки оценки — в один ряд, прижаты к низу под карточкой.
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 16.dp),
-                    textAlign = TextAlign.Center,
-                )
-                // Оформление карточки и кнопок живёт в ReviewCard/RatingBar —
-                // экран только раскладывает их и передаёт состояние.
-                // Оформление карточки и кнопок живёт в ReviewCard/RatingBar —
-                // экран только раскладывает их и передаёт состояние.
-                ReviewCard(
-                    front = uiState.front,
-                    back = uiState.back,
-                    isFlipped = uiState.flipped,
-                    onTap = onFlip,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 16.dp),
-                )
-                // Зона кнопок зарезервирована постоянной высотой: после оценки
-                // кнопки сменяются заглушкой, карточка не растягивается вниз —
-                // «хвост» double-tap по бывшей кнопке не переворачивает
-                // следующую карточку (S12).
-                if (uiState.flipped) {
-                    RatingBar(
-                        onRate = onGrade,
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
-                } else {
-                    Spacer(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(RatingBarReservedHeight),
-                    )
-                }
-            }
-
-            ReviewUiState.Finished -> Column(
-                modifier = paddingModifier(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                SessionDone(modifier = Modifier.weight(1f))
-                Button(
-                    onClick = onBack,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .padding(bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("Назад к колодам")
+                    Button(
+                        onClick = onRate,
+                        enabled = state.isRevealed,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Red,
+                            contentColor = Ink,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Забыл")
+                    }
+                    Button(
+                        onClick = onRate,
+                        enabled = state.isRevealed,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Orange,
+                            contentColor = Ink,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Трудно")
+                    }
+                    Button(
+                        onClick = onRate,
+                        enabled = state.isRevealed,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Blue,
+                            contentColor = Ink,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Хорошо")
+                    }
+                    Button(
+                        onClick = onRate,
+                        enabled = state.isRevealed,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Green,
+                            contentColor = Ink,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Легко")
+                    }
                 }
             }
         }
     }
 }
-
-@Composable
-private fun CenteredContent(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    Column(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        content()
-    }
-}
-
-private fun paddingModifier(padding: androidx.compose.foundation.layout.PaddingValues): Modifier =
-    Modifier
-        .fillMaxSize()
-        .padding(padding)
-
-/**
- * Резерв высоты зоны кнопок оценки с запасом: реальная [com.mnemocards.ui.review.RatingBar]
- * (~48dp) всегда меньше — после оценки карточка не вырастает вниз, и «хвост»
- * double-tap по бывшей кнопке попадает в некликабельную заглушку (S12).
- */
-private val RatingBarReservedHeight = 64.dp

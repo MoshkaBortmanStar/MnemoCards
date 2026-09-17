@@ -1,6 +1,7 @@
 package com.mnemocards
 
 import android.app.Application
+import com.mnemocards.data.db.DatabaseSeeder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,7 +22,7 @@ class MnemoCardsApplication : Application() {
         super.onCreate()
         container = AppContainer(this)
         applicationScope.launch {
-            container.databaseSeeder.seedIfNeeded()
+            DatabaseSeeder.seed(container.database)
         }
     }
 }

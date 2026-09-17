@@ -1,14 +1,11 @@
 package com.mnemocards.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
-/**
- * Карточка «слово + перевод», принадлежащая колоде.
- * FK на [DeckEntity] с каскадным удалением и индексом по `deckId`.
- */
 @Entity(
     tableName = "cards",
     foreignKeys = [
@@ -19,11 +16,18 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index(value = ["deckId"])],
+    indices = [Index("deckId")],
 )
 data class CardEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val deckId: Long,
     val front: String,
     val back: String,
+    /**
+     * Миллисекунды epoch — основа порядка «новые сверху» (createdAt DESC).
+     * defaultValue совпадает с MIGRATION_1_2 (ALTER ... NOT NULL DEFAULT 0),
+     * иначе Room считает схемы v2 и «свежей» несовместимыми.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val createdAt: Long,
 )
