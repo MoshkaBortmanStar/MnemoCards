@@ -1,5 +1,6 @@
 package com.mnemocards.ui.review
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,9 +15,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mnemocards.R
 
 /**
  * Карточка тренировки: контейнер по центру экрана с текстом текущей стороны.
@@ -65,9 +68,21 @@ fun ReviewCard(
                 softWrap = true,
                 overflow = TextOverflow.Ellipsis,
             )
+            // Эмблема внизу по центру карточки — декоративный элемент,
+            // на текст не влияет: лежит в том же Box отдельным слоем.
+            Image(
+                painter = painterResource(R.drawable.akatsuki_cloud),
+                contentDescription = null,   // декор, для скринридера не нужен
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = CardEmblemBottomPadding)
+                    .height(CardEmblemHeight),
+            )
         }
     }
 }
 
 private val CardMinHeight = 220.dp
 private val CardContentPadding = 24.dp
+private val CardEmblemHeight = 36.dp
+private val CardEmblemBottomPadding = 16.dp

@@ -1,5 +1,6 @@
 package com.mnemocards.ui.review
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,8 +9,11 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.res.painterResource
+import com.mnemocards.R
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -122,6 +126,15 @@ fun ReviewScreen(
                             },
                             style = MaterialTheme.typography.headlineMedium,
                             textAlign = TextAlign.Center,
+                        )
+                        // Эмблема внизу по центру карточки — декоративный слой
+                        // в том же Box, на вёрстку текста не влияет.
+                        Image(
+                            painter = painterResource(R.drawable.akatsuki_cloud),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .height(36.dp),
                         )
                     }
                 }
