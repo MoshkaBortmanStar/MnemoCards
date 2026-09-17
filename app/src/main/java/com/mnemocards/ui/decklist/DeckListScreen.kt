@@ -1,158 +1,232 @@
 package com.mnemocards.ui.decklist
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.mnemocards.data.db.DeckWithCardCount
+import com.mnemocards.domain.model.Deck
 
 /**
- * Стартовый экран приложения — список колод (название + счётчик карточек).
- * Stateless по бизнес-данным: состояние приходит из [DeckListUiState],
- * события текут вверх через коллбеки (UDF). Тап по элементу колоды
- * открывает её содержимое (S1), кнопка «Тренировать» — тренировку (S22).
+ * Экран «Список колод». UDF: события текут вверх в ViewModel,
+ * состояние приходит вниз из StateFlow. Список читается из Room
+ * через Flow репозитория, поэтому после мутаций обновляется сам.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeckListScreen(
-    state: DeckListUiState,
-    onDeckClick: (Long) -> Unit,
-    onTrainDeck: (Long) -> Unit,
+    viewModel: DeckListViewModel,
+    onDeckClick: (Deck) -> Unit,
+    onTrainDeck: (Long) -> Unit
 ) {
+    val uiState by viewModel.uiState.collectAsState()
+
     Scaffold(
         topBar = {
             // Панель сливается с фоном — как на остальных экранах приложения.
             TopAppBar(
-                title = { Text("Мои колоды") },
+                title = { Text("Колоды") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
-                ),
+                )
             )
         },
-        containerColor = MaterialTheme.colorScheme.background,
-    ) { innerPadding ->
-        Box(
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = viewModel::openCreateDialog,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Добавить колоду"
+                )
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { padding ->
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(padding)
         ) {
-            when (state) {
-                DeckListUiState.Loading -> Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
-
-                is DeckListUiState.Content -> if (state.decks.isEmpty()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            text = "Колод пока нет",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(items = state.decks, key = { it.deckId }) { deck ->
-                            DeckItem(
-                                deck = deck,
-                                onClick = { onDeckClick(deck.deckId) },
-                                onTrain = { onTrainDeck(deck.deckId) },
-                            )
-                        }
-                    }
-                }
-
-                // 500-аналог: ошибка чтения Room.
-                DeckListUiState.Error -> Column(
+            // Ошибка репозитория (аналог 500): экран остаётся консистентным
+            // с фактическим состоянием Room (S22)
+            uiState.errorMessage?.let { message ->
+                Text(
+                    text = message,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+            if (uiState.decks.isEmpty()) {
+                // Пустое состояние (S16, S17): приглашение создать первую колоду
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(32.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    Spacer(modifier = Modifier.weight(1f))
                     Text(
-                        text = "Не удалось загрузить колоды",
+                        text = "Пока нет колод",
                         style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onBackground,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = viewModel::openCreateDialog) {
+                        Text("Создать первую колоду")
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(uiState.decks, key = { it.id }) { deck ->
+                        DeckItem(
+                            deck = deck,
+                            isMenuShown = uiState.isMenuShown &&
+                                uiState.selectedDeck?.id == deck.id,
+                            onClick = { onDeckClick(deck) },
+                            onLongClick = { viewModel.onDeckLongPressed(deck) },
+                            onRename = viewModel::openRenameDialog,
+                            onDelete = viewModel::openDeleteDialog,
+                            onDismissMenu = viewModel::dismissMenu,
+                            onTrain = { onTrainDeck(deck.id) }
+                        )
+                    }
                 }
             }
         }
     }
+
+    if (uiState.isCreateDialogShown) {
+        DeckNameDialog(
+            title = "Новая колода",
+            value = uiState.createDeckName,
+            isError = uiState.isCreateNameError,
+            onValueChange = viewModel::updateCreateDeckName,
+            onSave = viewModel::createDeck,
+            onDismiss = viewModel::dismissCreateDialog
+        )
+    }
+
+    if (uiState.isRenameDialogShown) {
+        DeckNameDialog(
+            title = "Переименовать колоду",
+            value = uiState.renameDeckName,
+            isError = uiState.isRenameNameError,
+            onValueChange = viewModel::updateRenameDeckName,
+            onSave = viewModel::renameDeck,
+            onDismiss = viewModel::dismissRenameDialog
+        )
+    }
+
+    if (uiState.isDeleteDialogShown) {
+        DeleteDeckDialog(
+            deckName = uiState.selectedDeck?.name.orEmpty(),
+            onConfirm = viewModel::deleteDeck,
+            onDismiss = viewModel::dismissDeleteDialog
+        )
+    }
 }
 
 /**
- * Элемент колоды: тап по элементу — содержимое колоды (S1),
- * отдельная кнопка «Тренировать» — тренировка колоды (S22).
+ * Пункт списка колод: тап — открыть содержимое колоды, долгое
+ * нажатие (S6) — контекстное меню ровно с двумя действиями.
+ * Название обрезается одной строкой с ellipsis, в Room хранится
+ * полный текст (S5).
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DeckItem(
-    deck: DeckWithCardCount,
+fun DeckItem(
+    deck: Deck,
+    isMenuShown: Boolean,
     onClick: () -> Unit,
-    onTrain: () -> Unit,
+    onLongClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onDismissMenu: () -> Unit,
+    onTrain: () -> Unit
 ) {
-    Surface(
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    Box {
         Row(
-            modifier = Modifier
-                .padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 8.dp)
-                .clickable(onClick = onClick),
-            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Column(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    )
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 Text(
-                    text = deck.deckName,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = deck.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${deck.cardCount}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "${deck.cardCount} карточек",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                 )
             }
-            Button(onClick = onTrain) {
+            TextButton(
+                onClick = onTrain,
+                modifier = Modifier.padding(end = 8.dp)
+            ) {
                 Text("Тренировать")
             }
+        }
+        DropdownMenu(
+            expanded = isMenuShown,
+            onDismissRequest = onDismissMenu
+        ) {
+            DropdownMenuItem(
+                text = { Text("Переименовать") },
+                onClick = onRename
+            )
+            DropdownMenuItem(
+                text = { Text("Удалить") },
+                onClick = onDelete
+            )
         }
     }
 }

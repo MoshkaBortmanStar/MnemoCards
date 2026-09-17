@@ -2,13 +2,15 @@ package com.mnemocards.data.db
 
 import androidx.room.Dao
 import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface DeckDao {
 
-    @Insert
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertDeck(deck: DeckEntity): Long
 
     @Query("SELECT * FROM decks WHERE id = :id LIMIT 1")
@@ -29,4 +31,20 @@ interface DeckDao {
         """
     )
     fun observeDecksWithCardCounts(): Flow<List<DeckWithCardCount>>
+
+    @Query("UPDATE decks SET name = :name WHERE id = :id")
+    suspend fun renameDeck(id: Long, name: String)
+
+    @Query("DELETE FROM cards WHERE deckId = :deckId")
+    suspend fun deleteCardsByDeckId(deckId: Long)
+
+    @Query("DELETE FROM decks WHERE id = :id")
+    suspend fun deleteDeckById(id: Long)
+
+    /** Удаление колоды вместе со всеми карточками — единой операцией (S12). */
+    @Transaction
+    suspend fun deleteDeckWithCards(id: Long) {
+        deleteCardsByDeckId(id)
+        deleteDeckById(id)
+    }
 }

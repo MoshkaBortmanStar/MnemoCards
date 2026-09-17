@@ -10,13 +10,36 @@ prompt: 'Создание, переименование и удаление ко
   эндпоинтов и OpenAPI-контракта не появляется, сценарии описывай в терминах действий
   пользователя и состояний экрана. '
 created: 2026-09-17 13:35
-updated: 2026-09-17 14:00
+updated: 2026-09-17 14:15
 mode: llm
 status:
   proposal: generated
   spec-bdd: generated
   tasks: generated
+  code-generation: generated
 git:
   branch: change/004-sozdanie-pereimenovanie-udalenie
   worktree: /Users/mikhailbutorin/AndroidStudioProjects/MnemoCards-wt-004
   base_branch: feature/feature-001
+codegen:
+  batch_size: 3
+  task_count: 18
+  done_batches: 6
+  files:
+  - MAIN.md
+  - app/src/main/java/com/mnemocards/AppContainer.kt
+  - app/src/main/java/com/mnemocards/data/RoomDeckRepository.kt
+  - app/src/main/java/com/mnemocards/data/db/DatabaseSeeder.kt
+  - app/src/main/java/com/mnemocards/data/db/DeckDao.kt
+  - app/src/main/java/com/mnemocards/domain/DeckRepository.kt
+  - app/src/main/java/com/mnemocards/domain/model/Deck.kt
+  - app/src/main/java/com/mnemocards/ui/decklist/DeckListScreen.kt
+  - app/src/main/java/com/mnemocards/ui/decklist/DeckListViewModel.kt
+  - app/src/main/java/com/mnemocards/ui/decklist/DeckNameDialog.kt
+  - app/src/main/java/com/mnemocards/ui/decklist/DeleteDeckDialog.kt
+  - app/src/test/java/com/mnemocards/data/DeckSeederTest.kt
+  - app/src/test/java/com/mnemocards/data/PersistenceIntegrationTest.kt
+  - app/src/test/java/com/mnemocards/data/RoomDeckRepositoryTest.kt
+  - app/src/test/java/com/mnemocards/data/db/DeckDaoTest.kt
+  - app/src/test/java/com/mnemocards/ui/decklist/DeckListScreenTest.kt
+  - app/src/test/java/com/mnemocards/ui/decklist/DeckListViewModelTest.kt

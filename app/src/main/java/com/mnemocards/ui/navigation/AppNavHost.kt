@@ -11,6 +11,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.mnemocards.data.RoomDeckRepository
 import com.mnemocards.data.db.MnemoCardsDatabase
 import com.mnemocards.data.repository.RoomCardRepository
 import com.mnemocards.ui.cardform.CardFormEvent
@@ -60,11 +61,12 @@ fun AppNavHost(
         modifier = modifier,
     ) {
         composable(Routes.DECKS) {
-            val viewModel: DeckListViewModel = viewModel { DeckListViewModel(db.deckDao()) }
-            val state by viewModel.uiState.collectAsStateWithLifecycle()
+            val viewModel: DeckListViewModel = viewModel {
+                DeckListViewModel(RoomDeckRepository(db.deckDao()))
+            }
             DeckListScreen(
-                state = state,
-                onDeckClick = { deckId -> navController.navigate(Routes.deckContent(deckId)) },
+                viewModel = viewModel,
+                onDeckClick = { deck -> navController.navigate(Routes.deckContent(deck.id)) },
                 onTrainDeck = { deckId -> navController.navigate(Routes.review(deckId)) },
             )
         }
