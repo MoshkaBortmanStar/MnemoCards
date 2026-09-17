@@ -169,7 +169,7 @@ tasks.md (переданы ниже).
 перенеси в него прежнее оформление целиком, а не пиши экран заново с нуля.
 Не оставляй после себя осиротевшие компоненты: перестал использовать
 существующий файл — перенеси его содержимое или используй его, а не дублируй
-логику на месте. Все это касается и другого кода, относящегося к любой логике.
+логику на месте.
 
 ВАЖНО: язык, расширения файлов, тестовые библиотеки и структуру каталогов
 определяй ИСКЛЮЧИТЕЛЬНО по стеку проекта, указанному выше. Не переноси
@@ -1175,6 +1175,9 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
     if main_ctx:
         sections.append(main_ctx)
     sections.append("Спецификация spec-bdd.md:\n---\n{}\n---".format(spec.rstrip()))
+    map_ctx = project_map_context(cfg)
+    if map_ctx:
+        sections.append(map_ctx)
     build_ctx = build_files_context(cfg)
     if build_ctx:
         sections.append(build_ctx)
@@ -1240,6 +1243,80 @@ def cmd_codegen(args: argparse.Namespace, cfg: Dict) -> None:
     info("Изменение готово к мерджу. Из основного проекта:")
     print("  python3 .agent/run-agent.py --worktrees")
     print("  git merge {}".format(git_meta.get("branch", "<ветка>")))
+
+
+# Объявления верхнего уровня: только то, что начинается с нулевой колонки —
+# вложенные методы в карту не попадают, иначе она раздувается.
+DECL_RE = re.compile(
+    r"^(?:public |internal |private |protected |export |export default )?"
+    r"(?:abstract |final |open |sealed |data |value |suspend |inline |static )*"
+    r"(class|interface|object|enum class|enum|fun|def|type|struct|record)\s+"
+    r"([A-Za-z_]\w*)",
+    re.MULTILINE)
+
+CODE_SUFFIXES = {".kt", ".java", ".py", ".ts", ".tsx", ".js", ".go", ".rs",
+                 ".swift", ".cs", ".rb", ".php", ".scala"}
+SKIP_DIRS = {"build", "out", "target", "node_modules", ".git", ".gradle",
+             "__pycache__", ".venv", "venv", "dist", "generated"}
+PROJECT_MAP_CHAR_BUDGET = 12000
+
+
+def project_map_context(cfg: Dict) -> str:
+    """Карта существующего кода: какие файлы есть и что в них объявлено.
+
+    Без неё модель знает только спеку, план и то, что создала сама в этом
+    прогоне. Код предыдущих изменений для неё не существует — и она заново
+    создаёт уже имеющиеся сущности, второй NavHost, свои пакеты. Карта даёт
+    ей увидеть проект целиком, оставаясь дешёвой: пути и объявления верхнего
+    уровня, без тел функций.
+    """
+    gen = cfg.get("code_generation") or {}
+    if not gen.get("project_map", True):
+        return ""
+    roots = gen.get("project_map_roots") or [
+        (cfg.get("project_context") or {}).get("source_root", "src")]
+
+    lines, used, skipped = [], 0, 0
+    for root in roots:
+        base = PROJECT_ROOT / root
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            if (not path.is_file() or path.suffix not in CODE_SUFFIXES
+                    or SKIP_DIRS & set(path.parts)):
+                continue
+            rel = path.relative_to(PROJECT_ROOT)
+            try:
+                text = path.read_text(encoding="utf-8")
+            except Exception:  # noqa: BLE001 — нечитаемый файл просто пропускаем
+                continue
+            names = []
+            for kind, name in DECL_RE.findall(text):
+                entry = "{} {}".format(kind, name)
+                if entry not in names:
+                    names.append(entry)
+            entry = "- {}{}".format(
+                rel, ": " + ", ".join(names[:12]) if names else "")
+            if used + len(entry) > PROJECT_MAP_CHAR_BUDGET:
+                skipped += 1
+                continue
+            used += len(entry)
+            lines.append(entry)
+
+    if not lines:
+        return ""
+    info("Карта проекта: файлов {}{}".format(
+        len(lines), ", не влезло {}".format(skipped) if skipped else ""))
+    tail = ("\n(ещё {} файлов не поместились)".format(skipped)) if skipped else ""
+    return (
+        "КАРТА ПРОЕКТА — код, который УЖЕ СУЩЕСТВУЕТ (путь: объявления "
+        "верхнего уровня).\n"
+        "Используй существующие сущности вместо создания своих: не заводи "
+        "второй класс с тем же смыслом, не создавай параллельные пакеты, "
+        "не дублируй точку входа или навигацию. Нужно изменить существующий "
+        "файл — выведи его целиком по его текущему пути. Нужного файла тут "
+        "нет — только тогда создавай новый.\n\n"
+        + "\n".join(lines) + tail)
 
 
 def snapshot_build_files(cfg: Dict) -> Dict[str, List[str]]:
