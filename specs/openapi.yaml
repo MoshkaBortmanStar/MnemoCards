@@ -1,0 +1,451 @@
+openapi: 3.1.0
+info:
+  title: SyncMnemoCards Sync API
+  version: 1.0.0
+  description: >-
+    Машиночитаемая форма контракта API v1: пути, методы, тела запросов и
+    ответов, типы полей, обязательность, ограничения и коды ответов. Вся
+    семантика синхронизации определена в specs/API.md — этот документ
+    является источником истины и приоритетен при расхождениях.
+servers: []  # приложение за nginx, слушает HTTP на localhost
+security: []
+paths:
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      summary: Вход по логину и паролю
+      description: См. specs/API.md, раздел 5 — POST /api/v1/auth/login.
+      security: []
+      requestBody:
+        required: true
+        content:
+          "application/json; charset=utf-8":
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Выдана пара токенов
+          content:
+            "application/json; charset=utf-8":
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          description: Неверный логин или пароль
+          content:
+            "application/json; charset=utf-8":
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: INVALID_CREDENTIALS
+                  message: Неверный логин или пароль
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/auth/refresh:
+    post:
+      operationId: refresh
+      summary: Обновление пары токенов
+      description: См. specs/API.md, раздел 5 — POST /api/v1/auth/refresh.
+      security: []
+      requestBody:
+        required: true
+        content:
+          "application/json; charset=utf-8":
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Выдана новая пара токенов
+          content:
+            "application/json; charset=utf-8":
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          description: Refresh-токен недействителен
+          content:
+            "application/json; charset=utf-8":
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: REFRESH_INVALID
+                  message: Refresh-токен недействителен или отозван
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/sync/decks:
+    post:
+      operationId: syncDecks
+      summary: Синхронизация колод
+      description: >-
+        См. specs/API.md, раздел 5.3 — POST /api/v1/sync/decks.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          "application/json; charset=utf-8":
+            schema:
+              $ref: '#/components/schemas/SyncDecksRequest'
+      responses:
+        '200':
+          description: Изменения колод с момента since
+          content:
+            "application/json; charset=utf-8":
+              schema:
+                $ref: '#/components/schemas/SyncDecksResponse'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/TokenInvalid'
+        '413':
+          $ref: '#/components/responses/TooManyChanges'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/sync/decks/{deckUuid}/cards:
+    post:
+      operationId: syncCards
+      summary: Синхронизация карточек колоды
+      description: >-
+        См. specs/API.md, раздел 5.4 — POST /api/v1/sync/decks/{deckUuid}/cards.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: deckUuid
+          in: path
+          required: true
+          description: UUID колоды
+          schema:
+            type: string
+            pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+      requestBody:
+        required: true
+        content:
+          "application/json; charset=utf-8":
+            schema:
+              $ref: '#/components/schemas/SyncCardsRequest'
+      responses:
+        '200':
+          description: Изменения карточек с момента since
+          content:
+            "application/json; charset=utf-8":
+              schema:
+                $ref: '#/components/schemas/SyncCardsResponse'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/TokenInvalid'
+        '404':
+          $ref: '#/components/responses/DeckNotFound'
+        '413':
+          $ref: '#/components/responses/TooManyChanges'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/health:
+    get:
+      operationId: health
+      summary: Проверка живости сервера
+      description: >-
+        См. specs/API.md, раздел 5 — GET /api/v1/health.
+        Тела ошибок этого эндпоинта НЕ используют конверт ErrorResponse.
+      security: []
+      responses:
+        '200':
+          description: Состояние сервера
+          content:
+            "application/json; charset=utf-8":
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+        '503':
+          description: Приложение живо, база недоступна
+          content:
+            "application/json; charset=utf-8":
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: degraded
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    ValidationFailed:
+      description: Нарушены ограничения запроса
+      content:
+        "application/json; charset=utf-8":
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: Тело запроса не проходит валидацию
+    TokenInvalid:
+      description: Access-токен отсутствует или недействителен
+      content:
+        "application/json; charset=utf-8":
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: TOKEN_INVALID
+              message: Access-токен отсутствует или недействителен
+    DeckNotFound:
+      description: Колодa не найдена
+      content:
+        "application/json; charset=utf-8":
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: DECK_NOT_FOUND
+              message: Колодa с указанным UUID не найдена
+    TooManyChanges:
+      description: Превышен лимит элементов changes
+      content:
+        "application/json; charset=utf-8":
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: TOO_MANY_CHANGES
+              message: Превышено максимальное число изменений в запросе
+    InternalError:
+      description: Внутренняя ошибка сервера
+      content:
+        "application/json; charset=utf-8":
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: INTERNAL_ERROR
+              message: Внутренняя ошибка сервера
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 100
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+    TokenPair:
+      type: object
+      required: [accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt]
+      properties:
+        accessToken:
+          type: string
+        accessTokenExpiresAt:
+          type: integer
+          format: int64
+          description: Миллисекунды с epoch
+        refreshToken:
+          type: string
+        refreshTokenExpiresAt:
+          type: integer
+          format: int64
+          description: Миллисекунды с epoch
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_FAILED, INVALID_CREDENTIALS, REFRESH_INVALID,
+                     TOKEN_INVALID, DECK_NOT_FOUND, TOO_MANY_CHANGES, INTERNAL_ERROR]
+            message:
+              type: string
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+    DeckRecord:
+      type: object
+      required: [uuid, name, updatedAt, deletedAt]
+      properties:
+        uuid:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        updatedAt:
+          type: integer
+          format: int64
+          description: Миллисекунды с epoch
+        deletedAt:
+          type: ["integer", "null"]
+          format: int64
+          description: Миллисекунды с epoch; null для живой колоды
+    DeckChange:
+      type: object
+      required: [uuid, name, deleted]
+      properties:
+        uuid:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        deleted:
+          type: boolean
+    CardRecord:
+      type: object
+      required: [uuid, deckUuid, front, back, easeFactor, repetition, intervalDays,
+                 dueAt, updatedAt, deletedAt]
+      properties:
+        uuid:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        deckUuid:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        front:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        back:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        easeFactor:
+          type: number
+          format: double
+          minimum: 1.3
+          maximum: 5.0
+        repetition:
+          type: integer
+          minimum: 0
+        intervalDays:
+          type: integer
+          minimum: 0
+          maximum: 36500
+        dueAt:
+          type: integer
+          format: int64
+          description: Миллисекунды с epoch
+        updatedAt:
+          type: integer
+          format: int64
+          description: Миллисекунды с epoch
+        deletedAt:
+          type: ["integer", "null"]
+          format: int64
+          description: Миллисекунды с epoch; null для живой карточки
+    CardChange:
+      type: object
+      required: [uuid, deckUuid, front, back, easeFactor, repetition, intervalDays,
+                 dueAt, deleted]
+      properties:
+        uuid:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        deckUuid:
+          type: string
+          pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        front:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        back:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        easeFactor:
+          type: number
+          format: double
+          minimum: 1.3
+          maximum: 5.0
+        repetition:
+          type: integer
+          minimum: 0
+        intervalDays:
+          type: integer
+          minimum: 0
+          maximum: 36500
+        dueAt:
+          type: integer
+          format: int64
+          description: Миллисекунды с epoch
+        deleted:
+          type: boolean
+    SyncDecksRequest:
+      type: object
+      required: [since, changes]
+      properties:
+        since:
+          type: integer
+          format: int64
+          minimum: 0
+        changes:
+          type: array
+          minItems: 0
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/DeckChange'
+    SyncDecksResponse:
+      type: object
+      required: [revision, fullSync, decks]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        fullSync:
+          type: boolean
+        decks:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeckRecord'
+    SyncCardsRequest:
+      type: object
+      required: [since, changes]
+      properties:
+        since:
+          type: integer
+          format: int64
+          minimum: 0
+        changes:
+          type: array
+          minItems: 0
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/CardChange'
+    SyncCardsResponse:
+      type: object
+      required: [revision, fullSync, cards]
+      properties:
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        fullSync:
+          type: boolean
+        cards:
+          type: array
+          items:
+            $ref: '#/components/schemas/CardRecord'
