@@ -3,6 +3,7 @@ package com.mnemocards.data.db
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -23,7 +24,7 @@ class CardDaoTest {
     private lateinit var db: MnemoCardsDatabase
     private lateinit var deckDao: DeckDao
     private lateinit var cardDao: CardDao
-    private var deckId: Long = 0L
+    private lateinit var deckId: String
 
     @Before
     fun setUp() = kotlinx.coroutines.runBlocking {
@@ -33,7 +34,8 @@ class CardDaoTest {
             .build()
         deckDao = db.deckDao()
         cardDao = db.cardDao()
-        deckId = deckDao.insertDeck(DeckEntity(name = "Английский базовый"))
+        deckId = UUID.randomUUID().toString()
+        deckDao.insertDeck(DeckEntity(id = deckId, name = "Английский базовый"))
     }
 
     @After
@@ -41,15 +43,23 @@ class CardDaoTest {
         db.close()
     }
 
-    private suspend fun insert(front: String, back: String, createdAt: Long): Long =
+    private suspend fun insert(front: String, back: String, createdAt: Long): String {
+        val id = UUID.randomUUID().toString()
         cardDao.insertCard(
-            CardEntity(deckId = deckId, front = front, back = back, createdAt = createdAt)
+            CardEntity(
+                id = id,
+                deckId = deckId,
+                front = front,
+                back = back,
+                createdAt = createdAt,
+            ),
         )
+        return id
+    }
 
     @Test
-    fun insertCard_returnsGeneratedId() = runTest {
+    fun insertCard_storesRowWithUuid() = runTest {
         val id = insert("hello", "привет", 1000L)
-        assertTrue(id > 0)
         val card = cardDao.getCardById(id)
         assertNotNull(card)
         assertEquals("hello", card!!.front)
@@ -85,7 +95,13 @@ class CardDaoTest {
 
     @Test
     fun updateCard_returnsZeroForMissingRow() = runTest {
-        val missing = CardEntity(id = 4242L, deckId = deckId, front = "x", back = "y", createdAt = 1L)
+        val missing = CardEntity(
+            id = UUID.randomUUID().toString(),
+            deckId = deckId,
+            front = "x",
+            back = "y",
+            createdAt = 1L,
+        )
         assertEquals(0, cardDao.updateCard(missing))
     }
 

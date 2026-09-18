@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.mnemocards.data.db.DeckDao
 import com.mnemocards.data.db.DeckEntity
 import com.mnemocards.data.db.MnemoCardsDatabase
+import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -45,36 +46,42 @@ class RoomDeckRepositoryTest {
         db.close()
     }
 
-    private fun insertCard(deckId: Long, front: String, back: String) {
+    private fun insertCard(deckId: String, front: String, back: String) {
         db.openHelper.writableDatabase.execSQL(
-            "INSERT INTO cards (deckId, front, back) VALUES (?, ?, ?)",
+            "INSERT INTO cards (id, deckId, front, back) VALUES (lower(hex(randomblob(16))), ?, ?, ?)",
             arrayOf(deckId, front, back)
         )
     }
 
-    private fun cardCount(deckId: Long): Int {
+    private fun cardCount(deckId: String): Int {
         db.openHelper.readableDatabase.query(
             "SELECT COUNT(*) FROM cards WHERE deckId = ?",
-            arrayOf(deckId.toString())
+            arrayOf(deckId)
         ).use { cursor ->
             cursor.moveToFirst()
             return cursor.getInt(0)
         }
     }
 
-    // S1: createDeck пишет строку и возвращает id; название обрезается trim
-    @Test
-    fun createDeck_insertsRowAndReturnsId_withTrimmedName() = runTest {
-        val id = repository.createDeck("  Английские глаголы  ")
+    /** Создаёт колоду через репозиторий и возвращает её UUID (S6). */
+    private suspend fun createDeck(name: String): String {
+        repository.createDeck(name)
+        return deckDao.getDeckByName(name.trim())!!.id
+    }
 
-        assertTrue(id > 0)
+    // S1, S6: createDeck пишет строку с клиентским UUID; название обрезается trim
+    @Test
+    fun createDeck_insertsRowWithUuid_withTrimmedName() = runTest {
+        val id = createDeck("  Английские глаголы  ")
+
+        assertTrue(runCatching { UUID.fromString(id) }.isSuccess)
         assertEquals("Английские глаголы", deckDao.getDeckById(id)?.name)
     }
 
     // S8: renameDeck обновляет существующую запись
     @Test
     fun renameDeck_updatesExistingRow() = runTest {
-        val id = repository.createDeck("Немецкий")
+        val id = createDeck("Немецкий")
 
         repository.renameDeck(id, "Немецкий B1")
 
@@ -87,8 +94,8 @@ class RoomDeckRepositoryTest {
     // S12: deleteDeck удаляет колоду и все её карточки
     @Test
     fun deleteDeck_removesDeckAndItsCards() = runTest {
-        val englishId = repository.createDeck("Английский")
-        val germanId = repository.createDeck("Немецкий")
+        val englishId = createDeck("Английский")
+        val germanId = createDeck("Немецкий")
         repeat(3) { insertCard(englishId, "f$it", "b$it") }
         repeat(5) { insertCard(germanId, "v$it", "r$it") }
 
@@ -104,11 +111,12 @@ class RoomDeckRepositoryTest {
     // S21 (аналог 404): несуществующий id — безопасный no-op
     @Test
     fun operationsWithMissingId_areSafeNoOp() = runTest {
-        val id = repository.createDeck("Колода")
+        val id = createDeck("Колода")
         insertCard(id, "a", "b")
+        val ghost = UUID.randomUUID().toString()
 
-        repository.renameDeck(999L, "Призрак")
-        repository.deleteDeck(999L)
+        repository.renameDeck(ghost, "Призрак")
+        repository.deleteDeck(ghost)
 
         assertEquals("Колода", deckDao.getDeckById(id)?.name)
         assertEquals(1, repository.observeDecks().first().size)
@@ -119,10 +127,11 @@ class RoomDeckRepositoryTest {
     @Test
     fun daoFailure_isPropagated() = runTest {
         val failingRepository = RoomDeckRepository(FailingDeckDao(deckDao))
+        val anyId = UUID.randomUUID().toString()
 
         val createError = runCatching { failingRepository.createDeck("A") }.exceptionOrNull()
-        val renameError = runCatching { failingRepository.renameDeck(1L, "B") }.exceptionOrNull()
-        val deleteError = runCatching { failingRepository.deleteDeck(1L) }.exceptionOrNull()
+        val renameError = runCatching { failingRepository.renameDeck(anyId, "B") }.exceptionOrNull()
+        val deleteError = runCatching { failingRepository.deleteDeck(anyId) }.exceptionOrNull()
 
         assertTrue(createError is RuntimeException)
         assertTrue(renameError is RuntimeException)
@@ -131,20 +140,29 @@ class RoomDeckRepositoryTest {
 
     /** Фейковый DAO: все мутации бросают RuntimeException (имитация сбоя диска). */
     private class FailingDeckDao(private val original: DeckDao) : DeckDao by original {
-        override suspend fun insertDeck(deck: DeckEntity): Long =
+        override suspend fun insertDeck(deck: DeckEntity): Unit =
             throw RuntimeException("disk error")
 
-        override suspend fun renameDeck(id: Long, name: String): Unit =
+        override suspend fun renameDeck(id: String, name: String): Unit =
             throw RuntimeException("disk error")
 
-        override suspend fun deleteCardsByDeckId(deckId: Long): Unit =
+        override suspend fun deleteCardsByDeckId(deckId: String): Unit =
             throw RuntimeException("disk error")
 
-        override suspend fun deleteDeckById(id: Long): Unit =
+        override suspend fun deleteDeckById(id: String): Unit =
             throw RuntimeException("disk error")
 
-        /** Делегирование `by` пробрасывает и default-методы — гасим и его. */
-        override suspend fun deleteDeckWithCards(id: Long): Unit =
+        /** Делегирование `by` пробрасывает и default-методы — гасим и их. */
+        override suspend fun deleteDeckWithCards(id: String): Unit =
+            throw RuntimeException("disk error")
+
+        override suspend fun softDeleteDeckById(id: String): Unit =
+            throw RuntimeException("disk error")
+
+        override suspend fun softDeleteCardsByDeckId(deckId: String): Unit =
+            throw RuntimeException("disk error")
+
+        override suspend fun softDeleteDeckWithCards(id: String): Unit =
             throw RuntimeException("disk error")
     }
 }

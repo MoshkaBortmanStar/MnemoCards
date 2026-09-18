@@ -5,7 +5,7 @@ package com.mnemocards.data.db
  * dueToday — готовых к повторению сегодня (dueDate <= now), S25–S27.
  */
 data class DeckWithCardCounts(
-    val deckId: Long,
+    val deckId: String,
     val total: Int,
     val dueToday: Int,
 )

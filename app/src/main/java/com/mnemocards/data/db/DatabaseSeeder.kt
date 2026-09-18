@@ -1,6 +1,7 @@
 package com.mnemocards.data.db
 
 import androidx.room.withTransaction
+import java.util.UUID
 
 /**
  * Одноразовый сидинг базовой колоды (S14, S15, S19).
@@ -11,6 +12,9 @@ import androidx.room.withTransaction
  * приложения и переоткрытие файла БД, но не воскрешает удалённые
  * данные: после удаления базовой колоды повторный запуск сидинга
  * её не создаёт. Базовая колода — обычная запись без спецпризнаков.
+ *
+ * change-007: сиды получают клиентские UUID; признак локального
+ * изменения — true, счётчик правок — 1 (S4).
  */
 object DatabaseSeeder {
 
@@ -42,11 +46,21 @@ object DatabaseSeeder {
             // между внешней проверкой и началом транзакции.
             if (isSeedingDone(db)) return@withTransaction
 
-            val deckId = db.deckDao().insertDeck(DeckEntity(name = BASE_DECK_NAME))
+            val deckId = UUID.randomUUID().toString()
+            db.deckDao().insertDeck(
+                DeckEntity(
+                    id = deckId,
+                    name = BASE_DECK_NAME,
+                    isChanged = true,
+                    revision = 1,
+                    isDeleted = false,
+                ),
+            )
             val base = now
             BASE_CARDS.forEachIndexed { index, (front, back) ->
                 db.cardDao().insertCard(
                     CardEntity(
+                        id = UUID.randomUUID().toString(),
                         deckId = deckId,
                         front = front,
                         back = back,
@@ -57,7 +71,10 @@ object DatabaseSeeder {
                         repetitionNumber = 0,
                         intervalDays = 0,
                         dueDate = now,
-                    )
+                        isChanged = true,
+                        revision = 1,
+                        isDeleted = false,
+                    ),
                 )
             }
             markSeedingDone(db)

@@ -50,10 +50,13 @@ class DeckContentRepositoryTest {
         db.close()
     }
 
-    private suspend fun createDeck(name: String = "Английский"): Long =
-        db.deckDao().insertDeck(DeckEntity(name = name))
+    private suspend fun createDeck(name: String = "Английский"): String {
+        val id = java.util.UUID.randomUUID().toString()
+        db.deckDao().insertDeck(DeckEntity(id = id, name = name))
+        return id
+    }
 
-    private suspend fun cardsOf(deckId: Long): List<CardEntity> =
+    private suspend fun cardsOf(deckId: String): List<CardEntity> =
         db.cardDao().observeCardsByDeck(deckId).first()
 
     // S9: добавление 4 карточек в колоду из 5 → счётчик 5 → 9.
@@ -134,10 +137,11 @@ class DeckContentRepositoryTest {
     // S21: устаревшая колода → DeckNotFound, ничего не вставлено.
     @Test
     fun `S21 несуществующая колода даёт DeckNotFound`() = runTest {
-        val result = repository.importCards(999L, listOf("cat" to "кошка"))
+        val ghost = java.util.UUID.randomUUID().toString()
+        val result = repository.importCards(ghost, listOf("cat" to "кошка"))
 
         assertEquals(CardImportResult.DeckNotFound, result)
-        assertTrue(db.cardDao().observeCardsByDeck(999L).first().isEmpty())
+        assertTrue(db.cardDao().observeCardsByDeck(ghost).first().isEmpty())
     }
 
     // S22: ошибка DAO пробрасывается, вставка атомарно откачена.
@@ -151,7 +155,7 @@ class DeckContentRepositoryTest {
             db.deckDao(),
             object : CardDao by db.cardDao() {
                 override suspend fun insertImportedCards(
-                    deckId: Long,
+                    deckId: String,
                     cards: List<CardEntity>,
                 ): Boolean = throw RuntimeException("disk I/O error")
             },

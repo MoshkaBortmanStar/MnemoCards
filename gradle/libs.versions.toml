@@ -15,6 +15,7 @@ robolectric = "4.14.1"
 turbine = "1.1.0"
 navigation = "2.9.5"
 androidxTestCore = "1.6.1"
+datastorePreferences = "1.1.1"
 # Material Icons заморожены на 1.7.8 (deprecated) и больше не входят в Compose BOM.
 composeIconsCore = "1.7.8"
 
@@ -45,6 +46,7 @@ androidx-room-runtime = { group = "androidx.room", name = "room-runtime", versio
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastorePreferences" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 

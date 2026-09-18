@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.dp
 fun DeckListScreen(
     viewModel: DeckListViewModel,
     onDeckClick: (DeckListItem) -> Unit,
-    onTrainDeck: (Long) -> Unit
+    onTrainDeck: (String) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
 

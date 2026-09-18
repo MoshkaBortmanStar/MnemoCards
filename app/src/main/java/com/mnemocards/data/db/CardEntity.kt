@@ -10,11 +10,13 @@ import androidx.room.PrimaryKey
  * Карточка — пара «слово + перевод» с параметрами планирования SM-2
  * (change add-sm2-scheduling).
  *
- * Поля планирования (easinessFactor, repetitionNumber, intervalDays,
- * dueDate) добавлены в версии схемы 3 миграцией MIGRATION_2_3 со
- * значениями по умолчанию; defaultValue совпадает с ALTER ... NOT NULL
- * DEFAULT, иначе Room считает схемы несовместимыми. dueDate в миграции
- * заполняется моментом её выполнения (S28).
+ * change-007: идентификаторы [id] и ссылка [deckId] — UUID (String),
+ * сгенерированные на устройстве; добавлены поля подготовки к
+ * синхронизации [isChanged] / [revision] / [isDeleted] (см. [DeckEntity]).
+ *
+ * defaultValue полей планирования совпадают с DDL миграций v2/v3
+ * (ALTER ... NOT NULL DEFAULT), иначе Room считает схемы несовместимыми.
+ * defaultValue синхрополей — DDL миграции MIGRATION_3_4.
  */
 @Entity(
     tableName = "cards",
@@ -29,14 +31,12 @@ import androidx.room.PrimaryKey
     indices = [Index("deckId")],
 )
 data class CardEntity(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
-    val deckId: Long,
+    @PrimaryKey val id: String,
+    val deckId: String,
     val front: String,
     val back: String,
     /**
      * Миллисекунды epoch — основа порядка «новые сверху» (createdAt DESC).
-     * defaultValue совпадает с MIGRATION_1_2 (ALTER ... NOT NULL DEFAULT 0),
-     * иначе Room считает схемы v2 и «свежей» несовместимыми.
      */
     @ColumnInfo(defaultValue = "0")
     val createdAt: Long,
@@ -49,11 +49,16 @@ data class CardEntity(
     /** Длина текущего интервала в целых днях; 0 — только до первой оценки. */
     @ColumnInfo(defaultValue = "0")
     val intervalDays: Int = 0,
-    /**
-     * Момент следующего показа, epochMillis. Дефолт миграции — «сейчас»
-     * (backfill после ALTER, как у createdAt): существующие карточки
-     * становятся готовыми к повторению сразу (S28).
-     */
+    /** Момент следующего показа, epochMillis. */
     @ColumnInfo(defaultValue = "0")
     val dueDate: Long = 0L,
+    /** Изменена локально и ещё не отправлена на сервер (change-007). */
+    @ColumnInfo(defaultValue = "1")
+    val isChanged: Boolean = true,
+    /** Локальный счётчик правок: +1 на каждое изменение (change-007). */
+    @ColumnInfo(defaultValue = "1")
+    val revision: Int = 1,
+    /** Мягкое удаление: скрыта из UI, остаётся в БД до отправки (change-007). */
+    @ColumnInfo(defaultValue = "0")
+    val isDeleted: Boolean = false,
 )

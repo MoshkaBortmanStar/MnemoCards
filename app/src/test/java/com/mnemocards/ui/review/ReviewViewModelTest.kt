@@ -24,6 +24,7 @@ import org.junit.Test
 private const val DAY = 86_400_000L
 private const val MINUTE = 60_000L
 private const val TEN_MINUTES_MS = 10 * MINUTE
+private const val DECK_ID = "11111111-1111-4111-8111-111111111111"
 
 /**
  * Unit-тесты ReviewViewModel (change add-sm2-scheduling):
@@ -47,8 +48,8 @@ class ReviewViewModelTest {
     }
 
     private fun card(
-        id: Long,
-        deckId: Long = 1L,
+        id: String,
+        deckId: String = DECK_ID,
         front: String = "card$id",
         easinessFactor: Double = 2.5,
         repetitionNumber: Int = 0,
@@ -79,9 +80,9 @@ class ReviewViewModelTest {
         val cards = mutableListOf<Card>()
         val appliedGrades = mutableListOf<Pair<Card, ReviewGrade>>()
 
-        override suspend fun deckExists(deckId: Long): Boolean = deckExists
+        override suspend fun deckExists(deckId: String): Boolean = deckExists
 
-        override suspend fun dueCards(deckId: Long, now: Long): List<Card> {
+        override suspend fun dueCards(deckId: String, now: Long): List<Card> {
             if (failRead) throw RuntimeException("db read error")
             return cards.filter { it.deckId == deckId && it.dueDate <= now }
         }
@@ -110,7 +111,7 @@ class ReviewViewModelTest {
     }
 
     private fun viewModel(repo: FakeCardRepository) =
-        ReviewViewModel(deckId = 1L, repository = repo, nowProvider = { now })
+        ReviewViewModel(deckId = DECK_ID, repository = repo, nowProvider = { now })
 
     // ------------------------------------------------------------------
     // T13 — построение сессии
@@ -120,11 +121,11 @@ class ReviewViewModelTest {
     fun `S16 session is built only from due cards and starts with first due`() = runTest {
         val repo = FakeCardRepository()
         repo.cards += listOf(
-            card(1, front = "A", dueDate = now - DAY),      // вчера
-            card(2, front = "B", dueDate = now - MINUTE),   // недавно
-            card(3, front = "C", dueDate = now),            // ровно сейчас
-            card(4, front = "D", dueDate = now + DAY),      // завтра
-            card(5, front = "E", dueDate = now + 11 * 3_600_000L), // сегодня 23:59
+            card("c1", front = "A", dueDate = now - DAY),      // вчера
+            card("c2", front = "B", dueDate = now - MINUTE),   // недавно
+            card("c3", front = "C", dueDate = now),            // ровно сейчас
+            card("c4", front = "D", dueDate = now + DAY),      // завтра
+            card("c5", front = "E", dueDate = now + 11 * 3_600_000L), // сегодня 23:59
         )
 
         val vm = viewModel(repo)
@@ -140,8 +141,8 @@ class ReviewViewModelTest {
     fun `S17 no due cards shows Done immediately`() = runTest {
         val repo = FakeCardRepository()
         repo.cards += listOf(
-            card(1, dueDate = now + DAY),
-            card(2, dueDate = now + 2 * DAY),
+            card("c1", dueDate = now + DAY),
+            card("c2", dueDate = now + 2 * DAY),
         )
 
         val vm = viewModel(repo)
@@ -175,7 +176,7 @@ class ReviewViewModelTest {
     @Test
     fun `S31 read failure shows Error instead of session`() = runTest {
         val repo = FakeCardRepository(failRead = true)
-        repo.cards += card(1)
+        repo.cards += card("c1")
 
         val vm = viewModel(repo)
         advanceUntilIdle()
@@ -190,7 +191,7 @@ class ReviewViewModelTest {
     @Test
     fun `flip toggles isFlipped`() = runTest {
         val repo = FakeCardRepository()
-        repo.cards += card(1)
+        repo.cards += card("c1")
 
         val vm = viewModel(repo)
         advanceUntilIdle()
@@ -204,7 +205,7 @@ class ReviewViewModelTest {
     @Test
     fun `S14 S15 previews match applied intervals for repeating card`() = runTest {
         val repo = FakeCardRepository()
-        repo.cards += card(1, repetitionNumber = 2, intervalDays = 6)
+        repo.cards += card("c1", repetitionNumber = 2, intervalDays = 6)
 
         val vm = viewModel(repo)
         advanceUntilIdle()
@@ -227,7 +228,7 @@ class ReviewViewModelTest {
     @Test
     fun `S1 Easy on new card applies grade and moves to next card`() = runTest {
         val repo = FakeCardRepository()
-        repo.cards += listOf(card(1, front = "cat"), card(2, front = "dog"))
+        repo.cards += listOf(card("c1", front = "cat"), card("c2", front = "dog"))
 
         val vm = viewModel(repo)
         advanceUntilIdle()
@@ -247,7 +248,7 @@ class ReviewViewModelTest {
     @Test
     fun `S2 S3 Good and Hard on new card apply grade`() = runTest {
         val repo = FakeCardRepository()
-        repo.cards += card(1, front = "cat")
+        repo.cards += card("c1", front = "cat")
 
         val vm = viewModel(repo)
         advanceUntilIdle()
@@ -264,7 +265,7 @@ class ReviewViewModelTest {
     @Test
     fun `S4 Forgot keeps card in session`() = runTest {
         val repo = FakeCardRepository()
-        repo.cards += card(1, front = "cat")
+        repo.cards += card("c1", front = "cat")
 
         val vm = viewModel(repo)
         advanceUntilIdle()
@@ -283,9 +284,9 @@ class ReviewViewModelTest {
     fun `S19 Forgot moves card to the end of the queue`() = runTest {
         val repo = FakeCardRepository()
         repo.cards += listOf(
-            card(1, front = "A"),
-            card(2, front = "B"),
-            card(3, front = "C"),
+            card("c1", front = "A"),
+            card("c2", front = "B"),
+            card("c3", front = "C"),
         )
 
         val vm = viewModel(repo)
@@ -311,7 +312,7 @@ class ReviewViewModelTest {
     @Test
     fun `S20 graduating the last re-queued card finishes session`() = runTest {
         val repo = FakeCardRepository()
-        repo.cards += listOf(card(1, front = "A"), card(2, front = "B"))
+        repo.cards += listOf(card("c1", front = "A"), card("c2", front = "B"))
 
         val vm = viewModel(repo)
         advanceUntilIdle()
@@ -332,7 +333,7 @@ class ReviewViewModelTest {
     @Test
     fun `S21 repeated Forgot lowers EF but not below floor`() = runTest {
         val repo = FakeCardRepository()
-        repo.cards += card(1, front = "A")
+        repo.cards += card("c1", front = "A")
 
         val vm = viewModel(repo)
         advanceUntilIdle()
@@ -355,7 +356,7 @@ class ReviewViewModelTest {
     @Test
     fun `S23 card with repetition 1 previews 6 days on Good`() = runTest {
         val repo = FakeCardRepository()
-        repo.cards += card(1, repetitionNumber = 1, intervalDays = 1)
+        repo.cards += card("c1", repetitionNumber = 1, intervalDays = 1)
 
         val vm = viewModel(repo)
         advanceUntilIdle()
@@ -374,7 +375,7 @@ class ReviewViewModelTest {
     @Test
     fun `S30 write failure keeps card unevaluated and retry applies`() = runTest {
         val repo = FakeCardRepository(failWrite = true)
-        repo.cards += listOf(card(1, front = "A"), card(2, front = "B"))
+        repo.cards += listOf(card("c1", front = "A"), card("c2", front = "B"))
 
         val vm = viewModel(repo)
         advanceUntilIdle()

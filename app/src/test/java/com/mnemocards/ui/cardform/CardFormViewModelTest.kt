@@ -25,45 +25,50 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class CardFormViewModelTest {
 
+    private companion object {
+        const val DECK_ID = "deck-1"
+        const val CARD_ID = "card-42"
+    }
+
     private val dispatcher = UnconfinedTestDispatcher()
 
     /** Fake-репозиторий: фиксирует вызовы записи, результаты настраиваются. */
     private class FakeCardRepository : CardRepository {
-        val deck = MutableStateFlow<DeckEntity?>(DeckEntity(id = 1L, name = "Английский базовый"))
+        val deck = MutableStateFlow<DeckEntity?>(DeckEntity(id = DECK_ID, name = "Английский базовый"))
         val cards = MutableStateFlow<List<CardEntity>>(emptyList())
 
         var cardById: CardEntity? = null
 
-        data class AddCall(val deckId: Long, val front: String, val back: String)
-        data class UpdateCall(val cardId: Long, val front: String, val back: String)
+        data class AddCall(val deckId: String, val front: String, val back: String)
+        data class UpdateCall(val cardId: String, val front: String, val back: String)
 
         val addCalls = mutableListOf<AddCall>()
         val updateCalls = mutableListOf<UpdateCall>()
-        val deleteCalls = mutableListOf<Long>()
+        val deleteCalls = mutableListOf<String>()
 
-        var addResult: CardOperationResult = CardOperationResult.Success(101L)
-        var updateResult: CardOperationResult = CardOperationResult.Success(42L)
-        var deleteResult: CardOperationResult = CardOperationResult.Success(42L)
+        var addResult: CardOperationResult = CardOperationResult.Success("c101")
+        var updateResult: CardOperationResult = CardOperationResult.Success(CARD_ID)
+        var deleteResult: CardOperationResult = CardOperationResult.Success(CARD_ID)
 
-        override fun observeDeck(deckId: Long): Flow<DeckEntity?> = deck
+        override fun observeDeck(deckId: String): Flow<DeckEntity?> = deck
 
-        override fun observeCards(deckId: Long): Flow<List<CardEntity>> = cards
+        override fun observeCards(deckId: String): Flow<List<CardEntity>> = cards
 
-        override fun observeCardCount(deckId: Long): Flow<Int> =
+        override fun observeCardCount(deckId: String): Flow<Int> =
             kotlinx.coroutines.flow.flowOf(cards.value.size)
 
-        override suspend fun getCardById(id: Long): CardEntity? = cardById
+        override suspend fun getCardById(id: String): CardEntity? = cardById
 
         // CSV-перенос (change-006): форме не нужен, заглушки для интерфейса.
-        override suspend fun exportCardTexts(deckId: Long): List<Pair<String, String>>? = null
+        override suspend fun exportCardTexts(deckId: String): List<Pair<String, String>>? = null
 
         override suspend fun importCards(
-            deckId: Long,
+            deckId: String,
             cards: List<Pair<String, String>>,
         ): CardImportResult = CardImportResult.Imported(0)
 
         override suspend fun addCard(
-            deckId: Long,
+            deckId: String,
             front: String,
             back: String,
         ): CardOperationResult {
@@ -72,7 +77,7 @@ class CardFormViewModelTest {
         }
 
         override suspend fun updateCard(
-            cardId: Long,
+            cardId: String,
             front: String,
             back: String,
         ): CardOperationResult {
@@ -80,7 +85,7 @@ class CardFormViewModelTest {
             return updateResult
         }
 
-        override suspend fun deleteCard(cardId: Long): CardOperationResult {
+        override suspend fun deleteCard(cardId: String): CardOperationResult {
             deleteCalls += cardId
             return deleteResult
         }
@@ -89,8 +94,8 @@ class CardFormViewModelTest {
     private lateinit var repository: FakeCardRepository
 
     private val existingCard = CardEntity(
-        id = 42L,
-        deckId = 1L,
+        id = CARD_ID,
+        deckId = DECK_ID,
         front = "cat",
         back = "кошка",
         createdAt = 1L,
@@ -110,7 +115,7 @@ class CardFormViewModelTest {
     // S4: режим добавления — оба поля пусты, без ошибок валидации.
     @Test
     fun addMode_fieldsAreEmpty() = runTest(dispatcher) {
-        val viewModel = CardFormViewModel(deckId = 1L, cardId = null, repository = repository)
+        val viewModel = CardFormViewModel(deckId = DECK_ID, cardId = null, repository = repository)
 
         val state = viewModel.uiState.value
         assertEquals("", state.front)
@@ -124,7 +129,7 @@ class CardFormViewModelTest {
     fun editMode_prefilledFromCard() = runTest(dispatcher) {
         repository.cardById = existingCard
 
-        val viewModel = CardFormViewModel(deckId = 1L, cardId = 42L, repository = repository)
+        val viewModel = CardFormViewModel(deckId = DECK_ID, cardId = CARD_ID, repository = repository)
 
         val state = viewModel.uiState.value
         assertEquals("cat", state.front)
@@ -136,7 +141,7 @@ class CardFormViewModelTest {
     // S5: валидное сохранение в режиме добавления — ровно один addCard и событие закрытия.
     @Test
     fun save_validAdd_callsAddOnce_andCloses() = runTest(dispatcher) {
-        val viewModel = CardFormViewModel(deckId = 1L, cardId = null, repository = repository)
+        val viewModel = CardFormViewModel(deckId = DECK_ID, cardId = null, repository = repository)
 
         viewModel.events.test {
             viewModel.onFrontChange("cat")
@@ -144,7 +149,7 @@ class CardFormViewModelTest {
             viewModel.save()
 
             assertEquals(1, repository.addCalls.size)
-            assertEquals(FakeCardRepository.AddCall(1L, "cat", "кошка"), repository.addCalls.single())
+            assertEquals(FakeCardRepository.AddCall(DECK_ID, "cat", "кошка"), repository.addCalls.single())
             assertEquals(0, repository.updateCalls.size)
             assertEquals(CardFormEvent.Closed, awaitItem())
             cancelAndIgnoreRemainingEvents()
@@ -156,7 +161,7 @@ class CardFormViewModelTest {
     fun save_validEdit_callsUpdateOnce_andCloses() = runTest(dispatcher) {
         repository.cardById = existingCard
 
-        val viewModel = CardFormViewModel(deckId = 1L, cardId = 42L, repository = repository)
+        val viewModel = CardFormViewModel(deckId = DECK_ID, cardId = CARD_ID, repository = repository)
 
         viewModel.events.test {
             viewModel.onFrontChange("a cat")
@@ -165,7 +170,7 @@ class CardFormViewModelTest {
 
             assertEquals(1, repository.updateCalls.size)
             assertEquals(
-                FakeCardRepository.UpdateCall(42L, "a cat", "кошка"),
+                FakeCardRepository.UpdateCall(CARD_ID, "a cat", "кошка"),
                 repository.updateCalls.single(),
             )
             assertEquals(0, repository.addCalls.size)
@@ -177,7 +182,7 @@ class CardFormViewModelTest {
     // S6, S7: невалидные данные — ошибки полей, репозиторий не вызывается, ввод сохраняется.
     @Test
     fun save_invalidFields_showsErrors_noRepoCall() = runTest(dispatcher) {
-        val viewModel = CardFormViewModel(deckId = 1L, cardId = null, repository = repository)
+        val viewModel = CardFormViewModel(deckId = DECK_ID, cardId = null, repository = repository)
 
         viewModel.onFrontChange("")
         viewModel.onBackChange("собака")
@@ -205,7 +210,7 @@ class CardFormViewModelTest {
     // S8: только пробельные символы — валидация блокирует сохранение.
     @Test
     fun save_whitespaceOnly_blocked() = runTest(dispatcher) {
-        val viewModel = CardFormViewModel(deckId = 1L, cardId = null, repository = repository)
+        val viewModel = CardFormViewModel(deckId = DECK_ID, cardId = null, repository = repository)
 
         viewModel.onFrontChange("   ")
         viewModel.onBackChange(" \n\t ")
@@ -222,7 +227,7 @@ class CardFormViewModelTest {
     fun save_editClearedField_blocked() = runTest(dispatcher) {
         repository.cardById = existingCard
 
-        val viewModel = CardFormViewModel(deckId = 1L, cardId = 42L, repository = repository)
+        val viewModel = CardFormViewModel(deckId = DECK_ID, cardId = CARD_ID, repository = repository)
 
         viewModel.onBackChange("")
         viewModel.save()
@@ -239,7 +244,7 @@ class CardFormViewModelTest {
     fun save_writeError_formStaysOpen_inputKept() = runTest(dispatcher) {
         repository.addResult = CardOperationResult.Error(RuntimeException("write failed"))
 
-        val viewModel = CardFormViewModel(deckId = 1L, cardId = null, repository = repository)
+        val viewModel = CardFormViewModel(deckId = DECK_ID, cardId = null, repository = repository)
 
         viewModel.events.test {
             viewModel.onFrontChange("cat")
@@ -261,7 +266,7 @@ class CardFormViewModelTest {
         repository.cardById = existingCard
         repository.updateResult = CardOperationResult.NotFound
 
-        val viewModel = CardFormViewModel(deckId = 1L, cardId = 42L, repository = repository)
+        val viewModel = CardFormViewModel(deckId = DECK_ID, cardId = CARD_ID, repository = repository)
 
         viewModel.events.test {
             viewModel.onFrontChange("a cat")
@@ -280,7 +285,7 @@ class CardFormViewModelTest {
     fun dismiss_withoutSave_noRepoCalls() = runTest(dispatcher) {
         repository.cardById = existingCard
 
-        val viewModel = CardFormViewModel(deckId = 1L, cardId = 42L, repository = repository)
+        val viewModel = CardFormViewModel(deckId = DECK_ID, cardId = CARD_ID, repository = repository)
 
         viewModel.events.test {
             viewModel.onFrontChange("изменено, но не сохранено")

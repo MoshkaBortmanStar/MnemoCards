@@ -12,6 +12,8 @@ import com.mnemocards.data.db.MnemoCardsDatabase
 import com.mnemocards.data.repository.CardOperationResult
 import com.mnemocards.data.repository.CardRepository
 import com.mnemocards.data.repository.RoomCardRepository
+import java.io.File
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -25,7 +27,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -34,7 +35,7 @@ class CardRepositoryTest {
     private lateinit var db: MnemoCardsDatabase
     private lateinit var repository: CardRepository
     private lateinit var dbFile: File
-    private var deckId: Long = 0L
+    private lateinit var deckId: String
 
     @Before
     fun setUp() = kotlinx.coroutines.runBlocking {
@@ -43,7 +44,8 @@ class CardRepositoryTest {
         dbFile.deleteOnExit()
         db = buildDb(context, dbFile)
         repository = RoomCardRepository(db.deckDao(), db.cardDao())
-        deckId = db.deckDao().insertDeck(DeckEntity(name = "Английский базовый"))
+        deckId = UUID.randomUUID().toString()
+        db.deckDao().insertDeck(DeckEntity(id = deckId, name = "Английский базовый"))
     }
 
     private fun buildDb(context: Context, file: File): MnemoCardsDatabase =
@@ -56,11 +58,13 @@ class CardRepositoryTest {
         db.close()
     }
 
-    private suspend fun CardRepository.addOk(deckId: Long, front: String, back: String): Long {
+    private suspend fun CardRepository.addOk(deckId: String, front: String, back: String): String {
         val result = addCard(deckId, front, back)
         assertTrue(result is CardOperationResult.Success)
         return (result as CardOperationResult.Success).cardId
     }
+
+    private fun randomId(): String = UUID.randomUUID().toString()
 
     // S1: карточки колоды читаются с лицевой и обратной стороной.
     @Test
@@ -81,7 +85,7 @@ class CardRepositoryTest {
     @Test
     fun observeDeck_returnsDeckOrNull() = runTest {
         assertEquals("Английский базовый", repository.observeDeck(deckId).first()?.name)
-        assertNull(repository.observeDeck(99L).first())
+        assertNull(repository.observeDeck(randomId()).first())
     }
 
     // S3, S5: новая карточка появляется в потоке первой.
@@ -115,10 +119,12 @@ class CardRepositoryTest {
     // S25: update несуществующей записи не становится insert (404-аналог).
     @Test
     fun updateCard_missingRow_returnsNotFound_noInsert() = runTest {
-        val result = repository.updateCard(4242L, "x", "y")
+        val missing = randomId()
+
+        val result = repository.updateCard(missing, "x", "y")
 
         assertTrue(result is CardOperationResult.NotFound)
-        assertNull(repository.getCardById(4242L))
+        assertNull(repository.getCardById(missing))
         assertEquals(0, repository.observeCardCount(deckId).first())
     }
 
@@ -133,10 +139,10 @@ class CardRepositoryTest {
         assertEquals(0, repository.observeCards(deckId).first().size)
     }
 
-    // S25: delete несуществующей записи — 404-аналог, без краша.
+    // S25: delete несуществующей записи — 404-аналог, без краха.
     @Test
     fun deleteCard_missingRow_returnsNotFound() = runTest {
-        assertTrue(repository.deleteCard(4242L) is CardOperationResult.NotFound)
+        assertTrue(repository.deleteCard(randomId()) is CardOperationResult.NotFound)
     }
 
     // S20, S21: счётчик карточек эмитит 3 -> 4 -> 3.
@@ -206,28 +212,38 @@ class CardRepositoryTest {
 
     /** DAO, который падает при любом обращении к переданным операциям. */
     private class ThrowingCardDao(
-        private val onGet: (Long) -> CardEntity? = { null },
+        private val onGet: (String) -> CardEntity? = { null },
         private val onUpdate: (CardEntity) -> Int = { 0 },
-        private val onDelete: (Long) -> Int = { 0 },
+        private val onDelete: (String) -> Int = { 0 },
     ) : CardDao {
         private val boom = RuntimeException("corrupted database")
 
-        override suspend fun insertCard(card: CardEntity): Long = throw boom
-        override suspend fun insertAll(cards: List<CardEntity>): List<Long> = throw boom
+        override suspend fun insertCard(card: CardEntity) {
+            throw boom
+        }
+
+        override suspend fun insertAll(cards: List<CardEntity>) {
+            throw boom
+        }
+
         override suspend fun updateCard(card: CardEntity): Int = onUpdate(card)
-        override suspend fun deleteCard(id: Long): Int = onDelete(id)
-        override fun observeCardsByDeck(deckId: Long): Flow<List<CardEntity>> = throw boom
-        override suspend fun getCardsByDeck(deckId: Long): List<CardEntity> = throw boom
-        override suspend fun getCardById(id: Long): CardEntity? = onGet(id)
-        override fun observeCardCountByDeck(deckId: Long): Flow<Int> = throw boom
-        override suspend fun maxCreatedAtInDeck(deckId: Long): Long? = throw boom
-        override suspend fun getDueCards(deckId: Long, now: Long): List<CardEntity> = throw boom
-        override fun countDue(deckId: Long, now: Long): Flow<Int> = throw boom
+        override suspend fun deleteCard(id: String): Int = onDelete(id)
+        override fun observeCardsByDeck(deckId: String): Flow<List<CardEntity>> = throw boom
+        override suspend fun getCardsByDeck(deckId: String): List<CardEntity> = throw boom
+        override suspend fun getCardById(id: String): CardEntity? = onGet(id)
+        override suspend fun getCardByIdIncludingDeleted(id: String): CardEntity? = onGet(id)
+        override suspend fun getCardsByDeckIncludingDeleted(deckId: String): List<CardEntity> =
+            throw boom
+        override suspend fun softDeleteCard(id: String): Int = onDelete(id)
+        override fun observeCardCountByDeck(deckId: String): Flow<Int> = throw boom
+        override suspend fun maxCreatedAtInDeck(deckId: String): Long? = throw boom
+        override suspend fun getDueCards(deckId: String, now: Long): List<CardEntity> = throw boom
+        override fun countDue(deckId: String, now: Long): Flow<Int> = throw boom
         override fun observeDeckCounts(now: Long): Flow<List<com.mnemocards.data.db.DeckWithCardCounts>> =
             throw boom
-        override suspend fun deckExists(deckId: Long): Boolean = throw boom
+        override suspend fun deckExists(deckId: String): Boolean = throw boom
         override suspend fun updateScheduling(
-            cardId: Long,
+            cardId: String,
             easinessFactor: Double,
             repetitionNumber: Int,
             intervalDays: Int,
@@ -236,15 +252,18 @@ class CardRepositoryTest {
     }
 
     private class NoopDeckDao : DeckDao {
-        override suspend fun insertDeck(deck: DeckEntity): Long = 0L
-        override suspend fun getDeckById(id: Long): DeckEntity? = null
+        override suspend fun insertDeck(deck: DeckEntity) = Unit
+        override suspend fun getDeckById(id: String): DeckEntity? = null
         override suspend fun getDeckByName(name: String): DeckEntity? = null
-        override fun observeDeckById(id: Long): Flow<DeckEntity?> = throw IllegalStateException()
+        override suspend fun getDeckByIdIncludingDeleted(id: String): DeckEntity? = null
+        override fun observeDeckById(id: String): Flow<DeckEntity?> = throw IllegalStateException()
         override fun observeDecksWithCardCounts(): Flow<List<com.mnemocards.data.db.DeckWithCardCount>> =
             throw IllegalStateException()
-        override suspend fun renameDeck(id: Long, name: String) = Unit
-        override suspend fun deleteCardsByDeckId(deckId: Long) = Unit
-        override suspend fun deleteDeckById(id: Long) = Unit
+        override suspend fun renameDeck(id: String, name: String) = Unit
+        override suspend fun deleteCardsByDeckId(deckId: String) = Unit
+        override suspend fun deleteDeckById(id: String) = Unit
+        override suspend fun softDeleteDeckById(id: String) = Unit
+        override suspend fun softDeleteCardsByDeckId(deckId: String) = Unit
     }
 
     // S26: insert падает — Error, приложение не падает, записей нет.
@@ -260,7 +279,14 @@ class CardRepositoryTest {
     // S26: update падает — Error, прежние значения не тронуты.
     @Test
     fun updateCard_daoThrows_returnsError() = runTest {
-        val existing = CardEntity(id = 1L, deckId = deckId, front = "cat", back = "кошка", createdAt = 1L)
+        val existingId = randomId()
+        val existing = CardEntity(
+            id = existingId,
+            deckId = deckId,
+            front = "cat",
+            back = "кошка",
+            createdAt = 1L,
+        )
         val repo = RoomCardRepository(
             NoopDeckDao(),
             ThrowingCardDao(
@@ -269,7 +295,7 @@ class CardRepositoryTest {
             ),
         )
 
-        val result = repo.updateCard(1L, "a cat", "кошка")
+        val result = repo.updateCard(existingId, "a cat", "кошка")
 
         assertTrue(result is CardOperationResult.Error)
         // Прежние значения не тронуты (проверяем на реальной БД).
@@ -286,7 +312,7 @@ class CardRepositoryTest {
             ThrowingCardDao(onDelete = { throw RuntimeException("delete failed") }),
         )
 
-        val result = repo.deleteCard(1L)
+        val result = repo.deleteCard(randomId())
 
         assertTrue(result is CardOperationResult.Error)
     }

@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
  * saveError без изменения очереди (S30).
  */
 class ReviewViewModel(
-    private val deckId: Long,
+    private val deckId: String,
     private val repository: CardRepository,
     private val nowProvider: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
@@ -148,7 +148,7 @@ class ReviewViewModel(
  * из AppContainer.
  */
 class ReviewViewModelFactory(
-    private val deckId: Long,
+    private val deckId: String,
     private val repository: CardRepository,
 ) : ViewModelProvider.Factory {
 

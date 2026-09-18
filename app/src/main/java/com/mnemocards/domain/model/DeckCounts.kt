@@ -5,7 +5,7 @@ package com.mnemocards.domain.model
  * карточек и сколько из них готово к повторению сегодня.
  */
 data class DeckCounts(
-    val deckId: Long,
+    val deckId: String,
     val total: Int,
     val dueToday: Int,
 )

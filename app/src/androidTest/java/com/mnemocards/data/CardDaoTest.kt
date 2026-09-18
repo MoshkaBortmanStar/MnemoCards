@@ -29,7 +29,7 @@ class CardDaoTest {
     private lateinit var db: MnemoCardsDatabase
     private lateinit var deckDao: DeckDao
     private lateinit var cardDao: CardDao
-    private var deckId: Long = 0L
+    private lateinit var deckId: String
 
     private val now = 1_000_000L
 
@@ -41,7 +41,8 @@ class CardDaoTest {
             .build()
         deckDao = db.deckDao()
         cardDao = db.cardDao()
-        deckId = deckDao.insertDeck(DeckEntity(name = "Тестовая"))
+        deckId = java.util.UUID.randomUUID().toString()
+        deckDao.insertDeck(DeckEntity(id = deckId, name = "Тестовая"))
     }
 
     @After
@@ -55,18 +56,23 @@ class CardDaoTest {
         easinessFactor: Double = 2.5,
         repetitionNumber: Int = 0,
         intervalDays: Int = 0,
-    ): Long = cardDao.insertCard(
-        CardEntity(
-            deckId = deckId,
-            front = front,
-            back = front,
-            createdAt = 0L,
-            easinessFactor = easinessFactor,
-            repetitionNumber = repetitionNumber,
-            intervalDays = intervalDays,
-            dueDate = dueDate,
-        ),
-    )
+    ): String {
+        val id = java.util.UUID.randomUUID().toString()
+        cardDao.insertCard(
+            CardEntity(
+                id = id,
+                deckId = deckId,
+                front = front,
+                back = front,
+                createdAt = 0L,
+                easinessFactor = easinessFactor,
+                repetitionNumber = repetitionNumber,
+                intervalDays = intervalDays,
+                dueDate = dueDate,
+            ),
+        )
+        return id
+    }
 
     @Test
     fun `S16 getDueCards returns only cards with dueDate le now`() = runBlocking {

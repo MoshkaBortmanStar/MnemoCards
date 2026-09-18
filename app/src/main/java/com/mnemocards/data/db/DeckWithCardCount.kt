@@ -1,7 +1,7 @@
 package com.mnemocards.data.db
 
 data class DeckWithCardCount(
-    val deckId: Long,
+    val deckId: String,
     val deckName: String,
     val cardCount: Int,
 )

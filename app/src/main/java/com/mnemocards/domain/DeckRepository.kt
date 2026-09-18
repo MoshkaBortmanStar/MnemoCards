@@ -8,17 +8,24 @@ import kotlinx.coroutines.flow.Flow
  *
  * Контракт ошибок: исключения БД пробрасываются наружу (S22);
  * операции с несуществующим id — безопасный no-op (S21).
+ *
+ * change-007: идентификаторы — UUID (String), генерируются приложением;
+ * createDeck больше не возвращает id — вызывающим он не нужен.
  */
 interface DeckRepository {
 
+    /** Живые колоды; мягко удалённые скрыты (S21). */
     fun observeDecks(): Flow<List<Deck>>
 
-    /** Создаёт колоду; название обрезается trim. Возвращает id новой записи. */
-    suspend fun createDeck(name: String): Long
+    /** Создаёт колоду; UUID генерируется на устройстве (S6). */
+    suspend fun createDeck(name: String)
 
-    /** Переименовывает колоду по id; несуществующий id — no-op. */
-    suspend fun renameDeck(id: Long, name: String)
+    /** Переименовывает; isChanged = true, revision + 1 (S11). */
+    suspend fun renameDeck(id: String, name: String)
 
-    /** Удаляет колоду и все её карточки; несуществующий id — no-op. */
-    suspend fun deleteDeck(id: Long)
+    /**
+     * Удаляет колоду и все её карточки. Режим зависит от флага
+     * синхронизации: выключен — физически (S18), включён — мягко (S20).
+     */
+    suspend fun deleteDeck(id: String)
 }

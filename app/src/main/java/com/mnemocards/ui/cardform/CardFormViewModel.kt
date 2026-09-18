@@ -43,8 +43,8 @@ data class CardFormUiState(
  * При сохранении: validate -> trim -> репозиторий -> маппинг результата.
  */
 class CardFormViewModel(
-    private val deckId: Long,
-    private val cardId: Long?,
+    private val deckId: String,
+    private val cardId: String?,
     private val repository: CardRepository,
 ) : ViewModel() {
 
@@ -140,8 +140,8 @@ class CardFormViewModel(
 
 /** Фабрика формы карточки: параметры навигации + репозиторий. */
 class CardFormViewModelFactory(
-    private val deckId: Long,
-    private val cardId: Long?,
+    private val deckId: String,
+    private val cardId: String?,
     private val repository: CardRepository,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")

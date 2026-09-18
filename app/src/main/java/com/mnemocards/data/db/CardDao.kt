@@ -9,29 +9,33 @@ import kotlinx.coroutines.flow.Flow
 
 /**
  * DAO карточек: CRUD (change add-card-cud) + методы планирования SM-2
- * (change add-sm2-scheduling): отбор по сроку, счётчик готовых сегодня
- * и запись результата оценки.
+ * (change add-sm2-scheduling) + подготовка к синхронизации (change-007).
+ *
+ * change-007: идентификаторы — UUID (String); мягко удалённые карточки
+ * (isDeleted = 1) скрыты из всех запросов для UI, тренировки, счётчиков
+ * и экспорта (S21, S22) и не участвуют в отборе назревших. Физическое
+ * и мягкое удаление выбирает репозиторий по флагу синхронизации.
  */
 @Dao
 interface CardDao {
 
     @Insert
-    suspend fun insertCard(card: CardEntity): Long
+    suspend fun insertCard(card: CardEntity)
 
     /**
      * Пакетная вставка карточек при импорте CSV (change-006):
      * @Insert со списком выполняется одной транзакцией Room.
      */
     @Insert
-    suspend fun insertAll(cards: List<CardEntity>): List<Long>
+    suspend fun insertAll(cards: List<CardEntity>)
 
     /**
      * Импорт CSV (change-006): проверка колоды и вставка атомарны.
-     * Колода удалена «между» проверкой и вставкой → false, ничего не
-     * вставлено (S21); сбой вставки откатывает весь пакет (S22).
+     * Мягко удалённая колода здесь уже невидима (deckExists с фильтром
+     * isDeleted = 0), поэтому импорт в неё невозможен (S21).
      */
     @Transaction
-    suspend fun insertImportedCards(deckId: Long, cards: List<CardEntity>): Boolean {
+    suspend fun insertImportedCards(deckId: String, cards: List<CardEntity>): Boolean {
         if (!deckExists(deckId)) return false
         insertAll(cards)
         return true
@@ -42,55 +46,96 @@ interface CardDao {
     suspend fun updateCard(card: CardEntity): Int
 
     @Query("DELETE FROM cards WHERE id = :id")
-    suspend fun deleteCard(id: Long): Int
+    suspend fun deleteCard(id: String): Int
 
-    @Query("SELECT * FROM cards WHERE deckId = :deckId ORDER BY createdAt DESC, id DESC")
-    fun observeCardsByDeck(deckId: Long): Flow<List<CardEntity>>
-
-    @Query("SELECT * FROM cards WHERE deckId = :deckId ORDER BY createdAt DESC, id DESC")
-    suspend fun getCardsByDeck(deckId: Long): List<CardEntity>
-
+    /** Прямой доступ без фильтра isDeleted — для тестов и синхронизации (S23). */
     @Query("SELECT * FROM cards WHERE id = :id LIMIT 1")
-    suspend fun getCardById(id: Long): CardEntity?
+    suspend fun getCardByIdIncludingDeleted(id: String): CardEntity?
 
-    @Query("SELECT COUNT(*) FROM cards WHERE deckId = :deckId")
-    fun observeCardCountByDeck(deckId: Long): Flow<Int>
+    /** Все строки колоды без фильтра isDeleted — для тестов и синхронизации (S20). */
+    @Query("SELECT * FROM cards WHERE deckId = :deckId")
+    suspend fun getCardsByDeckIncludingDeleted(deckId: String): List<CardEntity>
 
-    @Query("SELECT MAX(createdAt) FROM cards WHERE deckId = :deckId")
-    suspend fun maxCreatedAtInDeck(deckId: Long): Long?
+    /** Мягкое удаление: строка остаётся в БД с пометками (S19). */
+    @Query(
+        """
+        UPDATE cards SET isDeleted = 1, isChanged = 1, revision = revision + 1
+        WHERE id = :id AND isDeleted = 0
+        """
+    )
+    suspend fun softDeleteCard(id: String): Int
+
+    @Query(
+        "SELECT * FROM cards WHERE deckId = :deckId AND isDeleted = 0 " +
+            "ORDER BY createdAt DESC, id DESC",
+    )
+    fun observeCardsByDeck(deckId: String): Flow<List<CardEntity>>
+
+    /** Живые карточки колоды — экспорт пропускает мягко удалённые (S21). */
+    @Query(
+        "SELECT * FROM cards WHERE deckId = :deckId AND isDeleted = 0 " +
+            "ORDER BY createdAt DESC, id DESC",
+    )
+    suspend fun getCardsByDeck(deckId: String): List<CardEntity>
+
+    @Query("SELECT * FROM cards WHERE id = :id AND isDeleted = 0 LIMIT 1")
+    suspend fun getCardById(id: String): CardEntity?
+
+    @Query("SELECT COUNT(*) FROM cards WHERE deckId = :deckId AND isDeleted = 0")
+    fun observeCardCountByDeck(deckId: String): Flow<Int>
+
+    @Query(
+        "SELECT MAX(createdAt) FROM cards WHERE deckId = :deckId AND isDeleted = 0",
+    )
+    suspend fun maxCreatedAtInDeck(deckId: String): Long?
 
     /**
-     * Отбор в сессию повторения: карточки с dueDate <= [now], включая
-     * ровно срок (S16), в порядке назревания.
+     * Отбор в сессию повторения: живые карточки с dueDate <= [now],
+     * включая ровно срок (S16), в порядке назревания (S22).
      */
-    @Query("SELECT * FROM cards WHERE deckId = :deckId AND dueDate <= :now ORDER BY dueDate")
-    suspend fun getDueCards(deckId: Long, now: Long): List<CardEntity>
+    @Query(
+        "SELECT * FROM cards WHERE deckId = :deckId AND isDeleted = 0 " +
+            "AND dueDate <= :now ORDER BY dueDate",
+    )
+    suspend fun getDueCards(deckId: String, now: Long): List<CardEntity>
 
-    /** Счётчик карточек, готовых к повторению сегодня (S25, S27). */
-    @Query("SELECT COUNT(*) FROM cards WHERE deckId = :deckId AND dueDate <= :now")
-    fun countDue(deckId: Long, now: Long): Flow<Int>
+    /** Счётчик живых карточек, готовых к повторению сегодня (S25, S27). */
+    @Query(
+        "SELECT COUNT(*) FROM cards WHERE deckId = :deckId AND isDeleted = 0 " +
+            "AND dueDate <= :now",
+    )
+    fun countDue(deckId: String, now: Long): Flow<Int>
 
     /**
-     * Агрегат для списка колод одним запросом (S25–S27): общее количество
-     * карточек и готовых к повторению сегодня по каждой колоде.
+     * Агрегат для списка колод одним запросом (S25–S27): только живые
+     * колоды и живые карточки (S21).
      */
     @Query(
         """
         SELECT decks.id AS deckId,
                COUNT(cards.id) AS total,
                SUM(CASE WHEN cards.dueDate <= :now THEN 1 ELSE 0 END) AS dueToday
-        FROM decks LEFT JOIN cards ON cards.deckId = decks.id
+        FROM decks
+        LEFT JOIN cards ON cards.deckId = decks.id AND cards.isDeleted = 0
+        WHERE decks.isDeleted = 0
         GROUP BY decks.id
-        ORDER BY decks.id
+        ORDER BY decks.rowid
         """,
     )
     fun observeDeckCounts(now: Long): Flow<List<DeckWithCardCounts>>
 
-    /** Существование колоды — для состояния NotFound (S32). */
-    @Query("SELECT EXISTS(SELECT 1 FROM decks WHERE id = :deckId)")
-    suspend fun deckExists(deckId: Long): Boolean
+    /**
+     * Существование живой колоды — для состояния NotFound (S32) и
+     * идентификации мягко удалённой колоды с отсутствующей (S9).
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM decks WHERE id = :deckId AND isDeleted = 0)")
+    suspend fun deckExists(deckId: String): Boolean
 
-    /** Запись результата оценки: новые EF / № повторения / интервал / due (S1). */
+    /**
+     * Запись результата оценки: новые EF / № повторения / интервал / due
+     * (S1). Оценка — не правка данных: isChanged и revision не трогает
+     * (S17 спеки change-007).
+     */
     @Query(
         """
         UPDATE cards SET
@@ -102,7 +147,7 @@ interface CardDao {
         """,
     )
     suspend fun updateScheduling(
-        cardId: Long,
+        cardId: String,
         easinessFactor: Double,
         repetitionNumber: Int,
         intervalDays: Int,

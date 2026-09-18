@@ -62,22 +62,28 @@ class PersistenceIntegrationTest {
         }
     }
 
-    private fun insertCard(db: MnemoCardsDatabase, deckId: Long, front: String, back: String) {
+    private fun insertCard(db: MnemoCardsDatabase, deckId: String, front: String, back: String) {
         db.openHelper.writableDatabase.execSQL(
-            "INSERT INTO cards (deckId, front, back) VALUES (?, ?, ?)",
+            "INSERT INTO cards (id, deckId, front, back) VALUES (lower(hex(randomblob(16))), ?, ?, ?)",
             arrayOf(deckId, front, back)
         )
+    }
+
+    /** Создаёт колоду через репозиторий и возвращает её UUID. */
+    private suspend fun createDeck(db: MnemoCardsDatabase, name: String): String {
+        RoomDeckRepository(db.deckDao()).createDeck(name)
+        return db.deckDao().getDeckByName(name)!!.id
     }
 
     // S18: изменения (создание, переименование, удаление) переживают перезапуск
     @Test
     fun allChanges_surviveDatabaseReopen() = runTest {
-        val deckIds = mutableMapOf<String, Long>()
+        val deckIds = mutableMapOf<String, String>()
         withDb { db ->
             val repository = RoomDeckRepository(db.deckDao())
-            deckIds["A"] = repository.createDeck("A")
-            deckIds["B"] = repository.createDeck("B")
-            deckIds["C"] = repository.createDeck("C")
+            deckIds["A"] = createDeck(db, "A")
+            deckIds["B"] = createDeck(db, "B")
+            deckIds["C"] = createDeck(db, "C")
             insertCard(db, deckIds.getValue("A"), "aa", "аа")
             insertCard(db, deckIds.getValue("B"), "bb1", "бб1")
             insertCard(db, deckIds.getValue("B"), "bb2", "бб2")
@@ -122,7 +128,7 @@ class PersistenceIntegrationTest {
     fun newDeckWithDeletedName_isCreatedEmpty() = runTest {
         withDb { db ->
             val repository = RoomDeckRepository(db.deckDao())
-            val germanId = repository.createDeck("Немецкий")
+            val germanId = createDeck(db, "Немецкий")
             repeat(5) { insertCard(db, germanId, "w$it", "с$it") }
             repository.deleteDeck(germanId)
 

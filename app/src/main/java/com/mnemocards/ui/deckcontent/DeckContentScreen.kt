@@ -64,8 +64,8 @@ fun DeckContentScreen(
     transferMessage: TransferMessage = TransferMessage.Idle,
     onBack: () -> Unit,
     onAddCard: () -> Unit,
-    onEditCard: (Long) -> Unit,
-    onDeleteCard: (Long) -> Unit,
+    onEditCard: (String) -> Unit,
+    onDeleteCard: (String) -> Unit,
     onRetry: () -> Unit,
     onExportTarget: (Uri) -> Unit = {},
     onImportFile: (Uri) -> Unit = {},
@@ -297,7 +297,7 @@ fun DeckContentScreen(
 @Composable
 private fun CardList(
     cards: List<CardEntity>,
-    onEditCard: (Long) -> Unit,
+    onEditCard: (String) -> Unit,
     onDelete: (CardEntity) -> Unit,
 ) {
     LazyColumn(

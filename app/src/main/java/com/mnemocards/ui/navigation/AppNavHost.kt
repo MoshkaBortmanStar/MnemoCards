@@ -17,6 +17,7 @@ import com.mnemocards.data.db.MnemoCardsDatabase
 import com.mnemocards.data.file.CsvFileGateway
 import com.mnemocards.data.repository.RoomCardRepository
 import com.mnemocards.data.RoomCardRepository as ReviewCardRepository
+import com.mnemocards.data.sync.SyncFlagDataStore
 import com.mnemocards.ui.cardform.CardFormEvent
 import com.mnemocards.ui.cardform.CardFormScreen
 import com.mnemocards.ui.cardform.CardFormViewModel
@@ -36,6 +37,8 @@ import com.mnemocards.ui.review.ReviewViewModel
  *    (cardId опционален: нет — добавление, есть — редактирование);
  *  - `review/{deckId}` — тренировка колоды.
  *
+ * change-007: deckId и cardId — строковые UUID (S7).
+ *
  * Back-стек: список → содержимое → форма (S14); при NotFound —
  * автоматический возврат popBackStack (S24).
  */
@@ -45,16 +48,17 @@ object Routes {
     const val CARD_FORM = "deck/{deckId}/edit?cardId={cardId}"
     const val REVIEW = "review/{deckId}"
 
-    fun deckContent(deckId: Long) = "deck/$deckId"
-    fun cardForm(deckId: Long, cardId: Long? = null) =
+    fun deckContent(deckId: String) = "deck/$deckId"
+    fun cardForm(deckId: String, cardId: String? = null) =
         if (cardId == null) "deck/$deckId/edit" else "deck/$deckId/edit?cardId=$cardId"
-    fun review(deckId: Long) = "review/$deckId"
+    fun review(deckId: String) = "review/$deckId"
 }
 
 @Composable
 fun AppNavHost(
     db: MnemoCardsDatabase,
     csvFileGateway: CsvFileGateway,
+    syncFlagDataStore: SyncFlagDataStore,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -67,7 +71,7 @@ fun AppNavHost(
         composable(Routes.DECKS) {
             val viewModel: DeckListViewModel = viewModel {
                 DeckListViewModel(
-                    deckRepository = RoomDeckRepository(db.deckDao()),
+                    deckRepository = RoomDeckRepository(db.deckDao(), syncFlagDataStore),
                     countsRepository = RoomDeckCountsRepository(db.cardDao()),
                 )
             }
@@ -80,15 +84,17 @@ fun AppNavHost(
 
         composable(
             route = Routes.DECK_CONTENT,
-            arguments = listOf(navArgument("deckId") { type = NavType.LongType }),
+            arguments = listOf(
+                navArgument("deckId") { type = NavType.StringType },
+            ),
         ) { entry ->
-            val deckId = entry.arguments?.getLong("deckId") ?: 0L
+            val deckId = entry.arguments?.getString("deckId").orEmpty()
             val viewModel: DeckContentViewModel = viewModel(
                 key = "deck-content-$deckId",
             ) {
                 DeckContentViewModel(
                     deckId = deckId,
-                    repository = RoomCardRepository(db.deckDao(), db.cardDao()),
+                    repository = RoomCardRepository(db.deckDao(), db.cardDao(), syncFlagDataStore),
                     csvFileGateway = csvFileGateway,
                 )
             }
@@ -120,22 +126,23 @@ fun AppNavHost(
         composable(
             route = Routes.CARD_FORM,
             arguments = listOf(
-                navArgument("deckId") { type = NavType.LongType },
+                navArgument("deckId") { type = NavType.StringType },
                 navArgument("cardId") {
-                    type = NavType.LongType
-                    defaultValue = -1L
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 },
             ),
         ) { entry ->
-            val deckId = entry.arguments?.getLong("deckId") ?: 0L
-            val cardId = entry.arguments?.getLong("cardId")?.takeIf { it != -1L }
+            val deckId = entry.arguments?.getString("deckId").orEmpty()
+            val cardId = entry.arguments?.getString("cardId")
             val viewModel: CardFormViewModel = viewModel(
                 key = "card-form-$deckId-$cardId",
             ) {
                 CardFormViewModel(
                     deckId = deckId,
                     cardId = cardId,
-                    repository = RoomCardRepository(db.deckDao(), db.cardDao()),
+                    repository = RoomCardRepository(db.deckDao(), db.cardDao(), syncFlagDataStore),
                 )
             }
             val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -164,9 +171,11 @@ fun AppNavHost(
 
         composable(
             route = Routes.REVIEW,
-            arguments = listOf(navArgument("deckId") { type = NavType.LongType }),
+            arguments = listOf(
+                navArgument("deckId") { type = NavType.StringType },
+            ),
         ) { entry ->
-            val deckId = entry.arguments?.getLong("deckId") ?: 0L
+            val deckId = entry.arguments?.getString("deckId").orEmpty()
             val viewModel: ReviewViewModel = viewModel(
                 key = "review-$deckId",
             ) {

@@ -48,13 +48,53 @@ prompt: 'Переход на глобальные идентификаторы �
 
   '
 created: 2026-09-18 22:28
-updated: 2026-09-18 23:26
+updated: 2026-09-18 23:47
 mode: llm
 status:
   proposal: generated
   spec-bdd: generated
   tasks: generated
+  code-generation: generated
 git:
   branch: change/007-perekhod-globalnye-identifikatory
   worktree: /Users/mikhailbutorin/AndroidStudioProjects/MnemoCards-wt-007
   base_branch: feature/feature-001
+codegen:
+  batch_size: 3
+  task_count: 19
+  done_batches: 7
+  files:
+  - MAIN.md
+  - app/build.gradle.kts
+  - app/schemas/com.mnemocards.data.db.MnemoCardsDatabase/1.json
+  - app/src/main/java/com/mnemocards/AppContainer.kt
+  - app/src/main/java/com/mnemocards/data/CardCountRepository.kt
+  - app/src/main/java/com/mnemocards/data/RoomDeckRepository.kt
+  - app/src/main/java/com/mnemocards/data/db/CardDao.kt
+  - app/src/main/java/com/mnemocards/data/db/CardEntity.kt
+  - app/src/main/java/com/mnemocards/data/db/DatabaseSeeder.kt
+  - app/src/main/java/com/mnemocards/data/db/DeckDao.kt
+  - app/src/main/java/com/mnemocards/data/db/DeckEntity.kt
+  - app/src/main/java/com/mnemocards/data/db/DeckWithCardCount.kt
+  - app/src/main/java/com/mnemocards/data/db/DeckWithCardCounts.kt
+  - app/src/main/java/com/mnemocards/data/db/MigrationFrom1To2.kt
+  - app/src/main/java/com/mnemocards/data/db/MnemoCardsDatabase.kt
+  - app/src/main/java/com/mnemocards/data/repository/CardRepository.kt
+  - app/src/main/java/com/mnemocards/data/sync/SyncFlagDataStore.kt
+  - app/src/main/java/com/mnemocards/domain/DeckRepository.kt
+  - app/src/main/java/com/mnemocards/domain/model/Card.kt
+  - app/src/main/java/com/mnemocards/domain/model/Deck.kt
+  - app/src/main/java/com/mnemocards/domain/model/DeckCounts.kt
+  - app/src/main/java/com/mnemocards/ui/decklist/DeckListViewModel.kt
+  - app/src/main/java/com/mnemocards/ui/navigation/AppNavHost.kt
+  - app/src/main/java/com/mnemocards/ui/review/ReviewUiState.kt
+  - app/src/main/java/com/mnemocards/ui/review/ReviewViewModel.kt
+  - app/src/test/java/com/mnemocards/data/db/DaoFilterTest.kt
+  - app/src/test/java/com/mnemocards/data/db/MigrationFrom1To2Test.kt
+  - app/src/test/java/com/mnemocards/data/db/SeedingTest.kt
+  - app/src/test/java/com/mnemocards/data/repository/DeckRepositoryTest.kt
+  - app/src/test/java/com/mnemocards/data/repository/DeletionRepositoryTest.kt
+  - app/src/test/java/com/mnemocards/data/sync/SyncFlagDataStoreTest.kt
+  - app/src/test/java/com/mnemocards/ui/decklist/DeckListViewModelTest.kt
+  - app/src/test/java/com/mnemocards/ui/review/ReviewViewModelTest.kt
+  - gradle/libs.versions.toml

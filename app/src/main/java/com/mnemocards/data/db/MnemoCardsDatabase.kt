@@ -8,15 +8,16 @@ import androidx.room.RoomDatabase
 /**
  * Локальная БД (offline-first): Room — single source of truth для UI.
  *
- * version 3 — после добавления полей планирования SM-2 в CardEntity
- * (миграция MIGRATION_2_3, см. Migrations.kt); история версий:
- * v2 — createdAt (MIGRATION_1_2), v3 — параметры SM-2 (MIGRATION_2_3).
+ * version 4 — переход на UUID и поля синхронизации (change-007,
+ * миграция MIGRATION_3_4); история версий: v2 — createdAt
+ * (MIGRATION_1_2), v3 — параметры SM-2 (MIGRATION_2_3),
+ * v4 — UUID + isChanged/revision/isDeleted (MIGRATION_3_4).
  *
  * exportSchema = true: JSON схем нужны MigrationTestHelper (S28).
  */
 @Database(
     entities = [DeckEntity::class, CardEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class MnemoCardsDatabase : RoomDatabase() {

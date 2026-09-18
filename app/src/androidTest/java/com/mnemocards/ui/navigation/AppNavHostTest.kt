@@ -39,8 +39,10 @@ class AppNavHostTest {
             .allowMainThreadQueries()
             .build()
         val repository = RoomCardRepository(db.deckDao(), db.cardDao())
-        val deckId = db.deckDao()
-            .insertDeck(com.mnemocards.data.db.DeckEntity(name = "Английский базовый"))
+        val deckId = java.util.UUID.randomUUID().toString()
+        db.deckDao().insertDeck(
+            com.mnemocards.data.db.DeckEntity(id = deckId, name = "Английский базовый"),
+        )
         repository.addCard(deckId, "hello", "привет")
         repository.addCard(deckId, "dog", "собака")
 
@@ -50,6 +52,9 @@ class AppNavHostTest {
                     db = db,
                     csvFileGateway = SafCsvFileGateway(
                         InstrumentationRegistry.getInstrumentation().targetContext.contentResolver,
+                    ),
+                    syncFlagDataStore = com.mnemocards.data.sync.SyncFlagDataStore.fromContext(
+                        InstrumentationRegistry.getInstrumentation().targetContext,
                     ),
                 )
             }

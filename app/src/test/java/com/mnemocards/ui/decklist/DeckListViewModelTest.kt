@@ -36,25 +36,24 @@ class DeckListViewModelTest {
     private class FakeDeckRepository : DeckRepository {
         val decks = MutableStateFlow<List<Deck>>(emptyList())
         val createdNames = mutableListOf<String>()
-        val renamedCalls = mutableListOf<Pair<Long, String>>()
-        val deletedIds = mutableListOf<Long>()
+        val renamedCalls = mutableListOf<Pair<String, String>>()
+        val deletedIds = mutableListOf<String>()
         var failOnCreate = false
         var failOnRename = false
         var failOnDelete = false
 
-        private var nextId = 1L
+        private var nextId = 0
 
         override fun observeDecks(): Flow<List<Deck>> = decks
 
-        override suspend fun createDeck(name: String): Long {
+        override suspend fun createDeck(name: String) {
             if (failOnCreate) throw RuntimeException("disk error")
             createdNames.add(name)
-            val id = nextId++
+            val id = "deck-${++nextId}"
             decks.value = decks.value + Deck(id = id, name = name, cardCount = 0)
-            return id
         }
 
-        override suspend fun renameDeck(id: Long, name: String) {
+        override suspend fun renameDeck(id: String, name: String) {
             if (failOnRename) throw RuntimeException("disk error")
             renamedCalls.add(id to name)
             // Несуществующий id — no-op, «призрачных» записей не создаётся.
@@ -63,7 +62,7 @@ class DeckListViewModelTest {
             }
         }
 
-        override suspend fun deleteDeck(id: Long) {
+        override suspend fun deleteDeck(id: String) {
             if (failOnDelete) throw RuntimeException("disk error")
             deletedIds.add(id)
             decks.value = decks.value.filterNot { it.id == id }
@@ -95,7 +94,11 @@ class DeckListViewModelTest {
 
     private suspend fun state(): DeckListUiState = viewModel.uiState.first()
 
-    private val germanDeck = Deck(id = 7L, name = "Немецкий", cardCount = 5)
+    private companion object {
+        const val GERMAN_ID = "deck-7"
+    }
+
+    private val germanDeck = Deck(id = GERMAN_ID, name = "Немецкий", cardCount = 5)
 
     /** Ожидаемый элемент списка: счётчиков нет — total из cardCount, dueToday=0. */
     private val Deck.expectedItem: DeckListItem
@@ -163,7 +166,7 @@ class DeckListViewModelTest {
     // S4: дубликат существующего названия — создание разрешено
     @Test
     fun duplicateName_creationAllowed() = runTest(dispatcher) {
-        repository.decks.value = listOf(Deck(id = 1L, name = "Немецкий", cardCount = 5))
+        repository.decks.value = listOf(Deck(id = "deck-1", name = "Немецкий", cardCount = 5))
 
         viewModel.openCreateDialog()
         viewModel.updateCreateDeckName("Немецкий")
@@ -259,7 +262,7 @@ class DeckListViewModelTest {
         viewModel.renameDeck()
         advanceUntilIdle()
 
-        assertEquals(listOf(7L to "Немецкий B1"), repository.renamedCalls)
+        assertEquals(listOf(GERMAN_ID to "Немецкий B1"), repository.renamedCalls)
         val state = state()
         assertFalse(state.isRenameDialogShown)
         val renamed = state.decks.single()
@@ -327,7 +330,7 @@ class DeckListViewModelTest {
         val state = state()
         assertFalse(state.isRenameDialogShown)
         assertFalse(state.isRenameNameError)
-        assertEquals(listOf(7L to "Немецкий"), repository.renamedCalls)
+        assertEquals(listOf(GERMAN_ID to "Немецкий"), repository.renamedCalls)
     }
 
     // S12: подтверждение удаления вызывает deleteDeck(id)
@@ -341,7 +344,7 @@ class DeckListViewModelTest {
         advanceUntilIdle()
 
         val state = state()
-        assertEquals(listOf(7L), repository.deletedIds)
+        assertEquals(listOf(GERMAN_ID), repository.deletedIds)
         assertFalse(state.isDeleteDialogShown)
         assertTrue(state.decks.isEmpty())
     }
@@ -419,8 +422,8 @@ class DeckListViewModelTest {
 
         // No-op по несуществующему id: вызовы прошли, исключений нет,
         // «призрачных» записей не появилось.
-        assertEquals(listOf(7L to "Немецкий B1"), repository.renamedCalls)
-        assertEquals(listOf(7L), repository.deletedIds)
+        assertEquals(listOf(GERMAN_ID to "Немецкий B1"), repository.renamedCalls)
+        assertEquals(listOf(GERMAN_ID), repository.deletedIds)
         val state = state()
         assertTrue(state.decks.isEmpty())
         assertNull(state.errorMessage)
@@ -429,8 +432,8 @@ class DeckListViewModelTest {
     // S25: элемент списка несёт total=5 и dueToday=2
     @Test
     fun deckItem_carriesTotalAndDueToday() = runTest(dispatcher) {
-        repository.decks.value = listOf(Deck(id = 1L, name = "Базовая", cardCount = 5))
-        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 5, dueToday = 2))
+        repository.decks.value = listOf(Deck(id = "deck-1", name = "Базовая", cardCount = 5))
+        counts.counts.value = listOf(DeckCounts(deckId = "deck-1", total = 5, dueToday = 2))
         advanceUntilIdle()
 
         val item = state().decks.single()
@@ -441,8 +444,8 @@ class DeckListViewModelTest {
     // S27: все карточки в будущем — счётчик явно 0, колода не исчезает
     @Test
     fun dueToday_isZeroWhenAllCardsInFuture() = runTest(dispatcher) {
-        repository.decks.value = listOf(Deck(id = 1L, name = "Базовая", cardCount = 5))
-        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 5, dueToday = 0))
+        repository.decks.value = listOf(Deck(id = "deck-1", name = "Базовая", cardCount = 5))
+        counts.counts.value = listOf(DeckCounts(deckId = "deck-1", total = 5, dueToday = 0))
         advanceUntilIdle()
 
         val item = state().decks.single()
@@ -453,13 +456,13 @@ class DeckListViewModelTest {
     // S26: после оценок dueToday приходит из Room автоматически
     @Test
     fun dueToday_updatesAutomaticallyAfterGrades() = runTest(dispatcher) {
-        repository.decks.value = listOf(Deck(id = 1L, name = "Базовая", cardCount = 5))
-        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 5, dueToday = 2))
+        repository.decks.value = listOf(Deck(id = "deck-1", name = "Базовая", cardCount = 5))
+        counts.counts.value = listOf(DeckCounts(deckId = "deck-1", total = 5, dueToday = 2))
         advanceUntilIdle()
         assertEquals(2, state().decks.single().dueToday)
 
         // Обе назревшие карточки оценены — due ушёл в будущее.
-        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 5, dueToday = 0))
+        counts.counts.value = listOf(DeckCounts(deckId = "deck-1", total = 5, dueToday = 0))
         advanceUntilIdle()
 
         val item = state().decks.single()
@@ -470,11 +473,11 @@ class DeckListViewModelTest {
     // S24: новая карточка (due=«сейчас») сразу увеличивает счётчик
     @Test
     fun newCard_isDueImmediately() = runTest(dispatcher) {
-        repository.decks.value = listOf(Deck(id = 1L, name = "Базовая", cardCount = 5))
-        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 5, dueToday = 2))
+        repository.decks.value = listOf(Deck(id = "deck-1", name = "Базовая", cardCount = 5))
+        counts.counts.value = listOf(DeckCounts(deckId = "deck-1", total = 5, dueToday = 2))
         advanceUntilIdle()
 
-        counts.counts.value = listOf(DeckCounts(deckId = 1L, total = 6, dueToday = 3))
+        counts.counts.value = listOf(DeckCounts(deckId = "deck-1", total = 6, dueToday = 3))
         advanceUntilIdle()
 
         assertEquals(3, state().decks.single().dueToday)

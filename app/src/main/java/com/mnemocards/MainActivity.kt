@@ -21,6 +21,7 @@ class MainActivity : ComponentActivity() {
                 AppNavHost(
                     db = container.database,
                     csvFileGateway = container.csvFileGateway,
+                    syncFlagDataStore = container.syncFlagDataStore,
                 )
             }
         }

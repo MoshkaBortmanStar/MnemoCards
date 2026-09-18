@@ -15,20 +15,20 @@ import com.mnemocards.domain.scheduler.Sm2Scheduler
 interface CardRepository {
 
     /** Назревшие карточки колоды (dueDate <= now) с параметрами планирования (S16). */
-    suspend fun dueCards(deckId: Long, now: Long): List<Card>
+    suspend fun dueCards(deckId: String, now: Long): List<Card>
 
     /** Применяет оценку [grade] и записывает результат SM-2 в Room (S1–S8). */
     suspend fun applyGrade(card: Card, grade: ReviewGrade, now: Long)
 
     /** Существование колоды — состояние NotFound при устаревшем id (S32). */
-    suspend fun deckExists(deckId: Long): Boolean
+    suspend fun deckExists(deckId: String): Boolean
 }
 
 class RoomCardRepository(
     private val cardDao: CardDao,
 ) : CardRepository {
 
-    override suspend fun dueCards(deckId: Long, now: Long): List<Card> =
+    override suspend fun dueCards(deckId: String, now: Long): List<Card> =
         cardDao.getDueCards(deckId, now).map { it.toDomain() }
 
     override suspend fun applyGrade(card: Card, grade: ReviewGrade, now: Long) {
@@ -42,7 +42,7 @@ class RoomCardRepository(
         )
     }
 
-    override suspend fun deckExists(deckId: Long): Boolean =
+    override suspend fun deckExists(deckId: String): Boolean =
         cardDao.deckExists(deckId)
 
     private fun CardEntity.toDomain(): Card = Card(

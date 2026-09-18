@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
  * карточек и сколько из них готово к повторению сегодня (S24–S27).
  */
 data class DeckListItem(
-    val id: Long,
+    val id: String,
     val name: String,
     val total: Int,
     val dueToday: Int,

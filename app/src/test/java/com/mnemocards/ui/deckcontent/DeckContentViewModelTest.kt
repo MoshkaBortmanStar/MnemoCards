@@ -32,6 +32,10 @@ import org.robolectric.annotation.Config
 @OptIn(ExperimentalCoroutinesApi::class)
 class DeckContentViewModelTest {
 
+    private companion object {
+        const val DECK_ID = "deck-1"
+    }
+
     private val dispatcher = UnconfinedTestDispatcher()
 
     /** Fake-репозиторий: потоки через MutableStateFlow, запись фиксируется списками. */
@@ -42,13 +46,13 @@ class DeckContentViewModelTest {
         /** Если не null — потоки наблюдения бросают исключение (500-аналог, S26). */
         var observeError: Throwable? = null
 
-        val addedDecks = mutableListOf<Long>()
-        val updatedCards = mutableListOf<Long>()
-        val deletedCards = mutableListOf<Long>()
+        val addedDecks = mutableListOf<String>()
+        val updatedCards = mutableListOf<String>()
+        val deletedCards = mutableListOf<String>()
 
-        var addResult: CardOperationResult = CardOperationResult.Success(1L)
-        var updateResult: CardOperationResult = CardOperationResult.Success(1L)
-        var deleteResult: CardOperationResult = CardOperationResult.Success(1L)
+        var addResult: CardOperationResult = CardOperationResult.Success("c1")
+        var updateResult: CardOperationResult = CardOperationResult.Success("c1")
+        var deleteResult: CardOperationResult = CardOperationResult.Success("c1")
 
         private fun <T> throwingOr(flow: Flow<T>): Flow<T> =
             if (observeError != null) {
@@ -57,19 +61,19 @@ class DeckContentViewModelTest {
                 flow
             }
 
-        override fun observeDeck(deckId: Long): Flow<DeckEntity?> =
+        override fun observeDeck(deckId: String): Flow<DeckEntity?> =
             if (observeError != null) throwingOr(deck) else deck
 
-        override fun observeCards(deckId: Long): Flow<List<CardEntity>> =
+        override fun observeCards(deckId: String): Flow<List<CardEntity>> =
             if (observeError != null) throwingOr(cards) else cards
 
-        override fun observeCardCount(deckId: Long): Flow<Int> =
+        override fun observeCardCount(deckId: String): Flow<Int> =
             kotlinx.coroutines.flow.flowOf(cards.value.size)
 
-        override suspend fun getCardById(id: Long): CardEntity? = null
+        override suspend fun getCardById(id: String): CardEntity? = null
 
         override suspend fun addCard(
-            deckId: Long,
+            deckId: String,
             front: String,
             back: String,
         ): CardOperationResult {
@@ -78,7 +82,7 @@ class DeckContentViewModelTest {
         }
 
         override suspend fun updateCard(
-            cardId: Long,
+            cardId: String,
             front: String,
             back: String,
         ): CardOperationResult {
@@ -86,7 +90,7 @@ class DeckContentViewModelTest {
             return updateResult
         }
 
-        override suspend fun deleteCard(cardId: Long): CardOperationResult {
+        override suspend fun deleteCard(cardId: String): CardOperationResult {
             deletedCards += cardId
             return deleteResult
         }
@@ -95,13 +99,13 @@ class DeckContentViewModelTest {
         var exportTexts: List<Pair<String, String>>? = emptyList()
         var importResult: CardImportResult = CardImportResult.Imported(0)
         var importError: Exception? = null
-        val importedBatches = mutableListOf<Pair<Long, List<Pair<String, String>>>>()
+        val importedBatches = mutableListOf<Pair<String, List<Pair<String, String>>>>()
 
-        override suspend fun exportCardTexts(deckId: Long): List<Pair<String, String>>? =
+        override suspend fun exportCardTexts(deckId: String): List<Pair<String, String>>? =
             exportTexts
 
         override suspend fun importCards(
-            deckId: Long,
+            deckId: String,
             cards: List<Pair<String, String>>,
         ): CardImportResult {
             importedBatches += deckId to cards
@@ -141,20 +145,20 @@ class DeckContentViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun card(id: Long, front: String, back: String) =
-        CardEntity(id = id, deckId = 1L, front = front, back = back, createdAt = id)
+    private fun card(id: String, front: String, back: String) =
+        CardEntity(id = id, deckId = DECK_ID, front = front, back = back, createdAt = id.hashCode().toLong())
 
     // S1: колода с карточками -> Loading, затем Content с названием и списком.
     @Test
     fun deckWithCards_emitsContent() = runTest(dispatcher) {
-        repository.deck.value = DeckEntity(id = 1L, name = "Английский базовый")
+        repository.deck.value = DeckEntity(id = DECK_ID, name = "Английский базовый")
         repository.cards.value = listOf(
-            card(3, "cat", "кошка"),
-            card(2, "world", "мир"),
-            card(1, "hello", "привет"),
+            card("c3", "cat", "кошка"),
+            card("c2", "world", "мир"),
+            card("c1", "hello", "привет"),
         )
 
-        val viewModel = DeckContentViewModel(deckId = 1L, repository = repository, csvFileGateway = FakeCsvFileGateway())
+        val viewModel = DeckContentViewModel(deckId = DECK_ID, repository = repository, csvFileGateway = FakeCsvFileGateway())
 
         // Fake с готовыми значениями + Unconfined-диспетчер: состояние
         // устаканивается синхронно, StateFlow конфлетерирует Loading —
@@ -164,9 +168,9 @@ class DeckContentViewModelTest {
                 DeckContentUiState.Content(
                     title = "Английский базовый",
                     cards = listOf(
-                        card(3, "cat", "кошка"),
-                        card(2, "world", "мир"),
-                        card(1, "hello", "привет"),
+                        card("c3", "cat", "кошка"),
+                        card("c2", "world", "мир"),
+                        card("c1", "hello", "привет"),
                     ),
                 ),
                 awaitItem(),
@@ -178,10 +182,10 @@ class DeckContentViewModelTest {
     // S2: колода без карточек -> Empty (не Content с пустым списком).
     @Test
     fun deckWithoutCards_emitsEmpty() = runTest(dispatcher) {
-        repository.deck.value = DeckEntity(id = 1L, name = "Английский базовый")
+        repository.deck.value = DeckEntity(id = DECK_ID, name = "Английский базовый")
         repository.cards.value = emptyList()
 
-        val viewModel = DeckContentViewModel(deckId = 1L, repository = repository, csvFileGateway = FakeCsvFileGateway())
+        val viewModel = DeckContentViewModel(deckId = DECK_ID, repository = repository, csvFileGateway = FakeCsvFileGateway())
 
         viewModel.uiState.test {
             assertEquals(
@@ -198,7 +202,7 @@ class DeckContentViewModelTest {
         repository.deck.value = null
         repository.cards.value = emptyList()
 
-        val viewModel = DeckContentViewModel(deckId = 99L, repository = repository, csvFileGateway = FakeCsvFileGateway())
+        val viewModel = DeckContentViewModel(deckId = "deck-99", repository = repository, csvFileGateway = FakeCsvFileGateway())
 
         viewModel.uiState.test {
             assertEquals(DeckContentUiState.NotFound, awaitItem())
@@ -211,21 +215,21 @@ class DeckContentViewModelTest {
     fun readError_emitsError_thenRetryRecovers() = runTest(dispatcher) {
         repository.observeError = RuntimeException("corrupted database")
 
-        val viewModel = DeckContentViewModel(deckId = 1L, repository = repository, csvFileGateway = FakeCsvFileGateway())
+        val viewModel = DeckContentViewModel(deckId = DECK_ID, repository = repository, csvFileGateway = FakeCsvFileGateway())
 
         viewModel.uiState.test {
             assertEquals(DeckContentUiState.Error, awaitItem())
 
             // Ошибка устранена, данные появились.
             repository.observeError = null
-            repository.deck.value = DeckEntity(id = 1L, name = "Английский базовый")
-            repository.cards.value = listOf(card(1, "hello", "привет"))
+            repository.deck.value = DeckEntity(id = DECK_ID, name = "Английский базовый")
+            repository.cards.value = listOf(card("c1", "hello", "привет"))
 
             viewModel.retry()
             assertEquals(
                 DeckContentUiState.Content(
                     title = "Английский базовый",
-                    cards = listOf(card(1, "hello", "привет")),
+                    cards = listOf(card("c1", "hello", "привет")),
                 ),
                 awaitItem(),
             )
@@ -236,15 +240,15 @@ class DeckContentViewModelTest {
     // S16: deleteCard делегируется в репозиторий.
     @Test
     fun deleteCard_delegatesToRepository() = runTest(dispatcher) {
-        repository.deck.value = DeckEntity(id = 1L, name = "Английский базовый")
-        repository.cards.value = listOf(card(42, "cat", "кошка"))
+        repository.deck.value = DeckEntity(id = DECK_ID, name = "Английский базовый")
+        repository.cards.value = listOf(card("c42", "cat", "кошка"))
 
-        val viewModel = DeckContentViewModel(deckId = 1L, repository = repository, csvFileGateway = FakeCsvFileGateway())
+        val viewModel = DeckContentViewModel(deckId = DECK_ID, repository = repository, csvFileGateway = FakeCsvFileGateway())
 
         viewModel.uiState.test {
             awaitItem() // Content (устаканившееся состояние, Loading конфлетерируется)
-            viewModel.deleteCard(42L)
-            assertEquals(listOf(42L), repository.deletedCards)
+            viewModel.deleteCard("c42")
+            assertEquals(listOf("c42"), repository.deletedCards)
             cancelAndIgnoreRemainingEvents()
         }
     }
@@ -252,17 +256,17 @@ class DeckContentViewModelTest {
     // S26: ошибка удаления не роняет состояние и не трогает репозиторий повторно.
     @Test
     fun deleteCard_error_keepsState() = runTest(dispatcher) {
-        repository.deck.value = DeckEntity(id = 1L, name = "Английский базовый")
-        repository.cards.value = listOf(card(42, "cat", "кошка"))
+        repository.deck.value = DeckEntity(id = DECK_ID, name = "Английский базовый")
+        repository.cards.value = listOf(card("c42", "cat", "кошка"))
         repository.deleteResult = CardOperationResult.Error(RuntimeException("delete failed"))
 
-        val viewModel = DeckContentViewModel(deckId = 1L, repository = repository, csvFileGateway = FakeCsvFileGateway())
+        val viewModel = DeckContentViewModel(deckId = DECK_ID, repository = repository, csvFileGateway = FakeCsvFileGateway())
 
         viewModel.uiState.test {
             val content = awaitItem()
             assertTrue(content is DeckContentUiState.Content)
-            viewModel.deleteCard(42L)
-            assertEquals(listOf(42L), repository.deletedCards)
+            viewModel.deleteCard("c42")
+            assertEquals(listOf("c42"), repository.deletedCards)
             // Список не изменился — состояние остаётся прежним Content.
             assertEquals(content, viewModel.uiState.value)
             cancelAndIgnoreRemainingEvents()
@@ -277,7 +281,7 @@ class DeckContentViewModelTest {
     /** ViewModel с IO-диспетчером теста — детерминированное выполнение. */
     private fun transferViewModel(gateway: FakeCsvFileGateway): DeckContentViewModel =
         DeckContentViewModel(
-            deckId = 1L,
+            deckId = DECK_ID,
             repository = repository,
             csvFileGateway = gateway,
             ioDispatcher = dispatcher,
@@ -340,7 +344,7 @@ class DeckContentViewModelTest {
 
         assertEquals(TransferMessage.ImportSummary(added = 2, skipped = 1), viewModel.transferMessage.value)
         assertEquals(
-            listOf(1L to listOf("cat" to "кошка", "sun" to "солнце")),
+            listOf(DECK_ID to listOf("cat" to "кошка", "sun" to "солнце")),
             repository.importedBatches,
         )
     }
@@ -357,7 +361,7 @@ class DeckContentViewModelTest {
         viewModel.onImportFile(importUri)
 
         assertEquals(TransferMessage.ImportSummary(added = 1, skipped = 0), viewModel.transferMessage.value)
-        assertEquals(listOf(1L to listOf("cat" to "кошка")), repository.importedBatches)
+        assertEquals(listOf(DECK_ID to listOf("cat" to "кошка")), repository.importedBatches)
     }
 
     // S11: файл без строки заголовка — первая строка становится карточкой.
@@ -373,7 +377,7 @@ class DeckContentViewModelTest {
 
         assertEquals(TransferMessage.ImportSummary(added = 2, skipped = 0), viewModel.transferMessage.value)
         assertEquals(
-            listOf(1L to listOf("cat" to "кошка", "dog" to "собака")),
+            listOf(DECK_ID to listOf("cat" to "кошка", "dog" to "собака")),
             repository.importedBatches,
         )
     }

@@ -27,7 +27,13 @@ class DeckContentScreenTest {
     val composeRule = createComposeRule()
 
     private fun card(id: Long, front: String, back: String) =
-        CardEntity(id = id, deckId = 1L, front = front, back = back, createdAt = id)
+        CardEntity(
+            id = "c$id",
+            deckId = "d1",
+            front = front,
+            back = back,
+            createdAt = id,
+        )
 
     private fun setContent(state: DeckContentUiState) {
         composeRule.setContent {
@@ -142,7 +148,7 @@ class DeckContentScreenTest {
     // S1: клик по элементу — коллбек редактирования.
     @Test
     fun clickOnCard_invokesEditCallback() {
-        var clickedCardId: Long? = null
+        var clickedCardId: String? = null
         composeRule.setContent {
             MnemoCardsTheme {
                 DeckContentScreen(
@@ -161,7 +167,7 @@ class DeckContentScreenTest {
 
         composeRule.onNodeWithText("hello — привет").performClick()
         composeRule.runOnIdle {
-            assertTrue(clickedCardId == 1L)
+            assertEquals("c1", clickedCardId)
         }
     }
 
@@ -192,7 +198,7 @@ class DeckContentScreenTest {
     // S17: «Отмена» — диалог закрывается, карточка осталась в списке.
     @Test
     fun deleteDialog_cancel_cardStays() {
-        var deletedCardId: Long? = null
+        var deletedCardId: String? = null
         composeRule.setContent {
             MnemoCardsTheme {
                 DeckContentScreen(
@@ -221,7 +227,7 @@ class DeckContentScreenTest {
     // S16: «Удалить» — диалог закрыт, вызван коллбек VM, карточка исчезла из списка.
     @Test
     fun deleteDialog_confirm_invokesCallback_cardRemovedWithoutReload() {
-        var deletedCardId: Long? = null
+        var deletedCardId: String? = null
         var state by mutableStateOf(
             DeckContentUiState.Content(
                 title = "Английский базовый",

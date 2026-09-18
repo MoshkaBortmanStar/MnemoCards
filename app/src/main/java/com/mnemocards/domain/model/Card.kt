@@ -6,8 +6,8 @@ package com.mnemocards.domain.model
  * наружу не выходят.
  */
 data class Card(
-    val id: Long,
-    val deckId: Long,
+    val id: String,
+    val deckId: String,
     val front: String,
     val back: String,
     val easinessFactor: Double,

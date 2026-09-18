@@ -34,18 +34,18 @@ class ReviewScreenTest {
         val cards = MutableStateFlow<List<Card>>(emptyList())
         val appliedGrades = mutableListOf<ReviewGrade>()
 
-        override suspend fun dueCards(deckId: Long, now: Long): List<Card> = cards.value
+        override suspend fun dueCards(deckId: String, now: Long): List<Card> = cards.value
 
         override suspend fun applyGrade(card: Card, grade: ReviewGrade, now: Long) {
             appliedGrades.add(grade)
         }
 
-        override suspend fun deckExists(deckId: Long): Boolean = true
+        override suspend fun deckExists(deckId: String): Boolean = true
     }
 
     private fun newCard(front: String, back: String) = Card(
-        id = 1L,
-        deckId = 1L,
+        id = "c1",
+        deckId = "d1",
         front = front,
         back = back,
         easinessFactor = 2.5,
@@ -61,7 +61,7 @@ class ReviewScreenTest {
                     onBack = {},
                     onExit = onExit,
                     viewModel = ReviewViewModel(
-                        deckId = 1L,
+                        deckId = "d1",
                         repository = repository,
                         nowProvider = { NOW },
                     ),

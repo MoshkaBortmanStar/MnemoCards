@@ -55,31 +55,30 @@ class DeckListScreenTest {
     /** Фейковый репозиторий: все мутации применяются к MutableStateFlow. */
     private class FakeDeckRepository : DeckRepository {
         val decks = MutableStateFlow<List<Deck>>(
-            listOf(Deck(id = 1L, name = "Немецкий", cardCount = 5))
+            listOf(Deck(id = "deck-1", name = "Немецкий", cardCount = 5))
         )
         val createdNames = mutableListOf<String>()
-        val renamedDecks = mutableListOf<Pair<Long, String>>()
-        val deletedDeckIds = mutableListOf<Long>()
+        val renamedDecks = mutableListOf<Pair<String, String>>()
+        val deletedDeckIds = mutableListOf<String>()
 
-        private var nextId = 2L
+        private var nextId = 1
 
         override fun observeDecks(): Flow<List<Deck>> = decks
 
-        override suspend fun createDeck(name: String): Long {
+        override suspend fun createDeck(name: String) {
             createdNames.add(name)
-            val id = nextId++
+            val id = "deck-${++nextId}"
             decks.value = decks.value + Deck(id = id, name = name, cardCount = 0)
-            return id
         }
 
-        override suspend fun renameDeck(id: Long, name: String) {
+        override suspend fun renameDeck(id: String, name: String) {
             renamedDecks.add(id to name)
             decks.value = decks.value.map {
                 if (it.id == id) it.copy(name = name) else it
             }
         }
 
-        override suspend fun deleteDeck(id: Long) {
+        override suspend fun deleteDeck(id: String) {
             deletedDeckIds.add(id)
             decks.value = decks.value.filterNot { it.id == id }
         }
@@ -225,7 +224,7 @@ class DeckListScreenTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Немецкий B1").assertIsDisplayed()
         composeRule.onNodeWithText("5 карточек", substring = true).assertIsDisplayed()
-        assertEquals(listOf(1L to "Немецкий B1"), repository.renamedDecks)
+        assertEquals(listOf("deck-1" to "Немецкий B1"), repository.renamedDecks)
     }
 
     // S9: пустое название при переименовании — ошибка, репозиторий не вызван
@@ -264,8 +263,8 @@ class DeckListScreenTest {
     @Test
     fun deleteDeck_confirmed_removesDeckFromList() = runTest(dispatcher) {
         repository.decks.value = listOf(
-            Deck(id = 1L, name = "Английский", cardCount = 3),
-            Deck(id = 2L, name = "Немецкий", cardCount = 5)
+            Deck(id = "deck-1", name = "Английский", cardCount = 3),
+            Deck(id = "deck-2", name = "Немецкий", cardCount = 5)
         )
         advanceUntilIdle()
         composeRule.waitForIdle()
@@ -284,7 +283,7 @@ class DeckListScreenTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithText("Английский").assertDoesNotExist()
         composeRule.onNodeWithText("Немецкий").assertIsDisplayed()
-        assertEquals(listOf(1L), repository.deletedDeckIds)
+        assertEquals(listOf("deck-1"), repository.deletedDeckIds)
     }
 
     // S13: отмена подтверждения — колода остаётся

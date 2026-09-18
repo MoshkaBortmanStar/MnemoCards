@@ -51,10 +51,10 @@ class DeckSeederTest {
         }
     }
 
-    private fun firstDeckId(): Long {
+    private fun firstDeckId(): String {
         db.openHelper.readableDatabase.query("SELECT id FROM decks LIMIT 1").use { cursor ->
             cursor.moveToFirst()
-            return cursor.getLong(0)
+            return cursor.getString(0)
         }
     }
 

@@ -5,7 +5,7 @@ package com.mnemocards.domain.model
  * Room-сущности (`DeckEntity`) не покидают пакет `data`.
  */
 data class Deck(
-    val id: Long,
+    val id: String,
     val name: String,
     val cardCount: Int
 )

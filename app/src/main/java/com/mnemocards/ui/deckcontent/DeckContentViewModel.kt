@@ -61,7 +61,7 @@ sealed interface TransferMessage {
  * до обращения к Room (S18, S19).
  */
 class DeckContentViewModel(
-    private val deckId: Long,
+    private val deckId: String,
     private val repository: CardRepository,
     private val csvFileGateway: CsvFileGateway,
     private val encoder: CsvEncoder = CsvEncoder,
@@ -101,7 +101,7 @@ class DeckContentViewModel(
     }
 
     /** Удаление карточки; делегируется в репозиторий, ошибки не роняют UI (S16, S26). */
-    fun deleteCard(cardId: Long) {
+    fun deleteCard(cardId: String) {
         viewModelScope.launch {
             repository.deleteCard(cardId)
         }

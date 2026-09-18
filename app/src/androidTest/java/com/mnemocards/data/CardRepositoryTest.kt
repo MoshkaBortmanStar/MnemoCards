@@ -35,7 +35,7 @@ class CardRepositoryTest {
     private lateinit var cardDao: CardDao
     private lateinit var repository: RoomCardRepository
     private lateinit var countsRepository: RoomDeckCountsRepository
-    private var deckId: Long = 0L
+    private lateinit var deckId: String
 
     private val now = 1_000_000L
 
@@ -49,7 +49,8 @@ class CardRepositoryTest {
         cardDao = db.cardDao()
         repository = RoomCardRepository(cardDao)
         countsRepository = RoomDeckCountsRepository(cardDao)
-        deckId = deckDao.insertDeck(DeckEntity(name = "Базовая"))
+        deckId = java.util.UUID.randomUUID().toString()
+        deckDao.insertDeck(DeckEntity(id = deckId, name = "Базовая"))
     }
 
     @After
@@ -63,18 +64,23 @@ class CardRepositoryTest {
         easinessFactor: Double = 2.5,
         repetitionNumber: Int = 0,
         intervalDays: Int = 0,
-    ): Long = cardDao.insertCard(
-        CardEntity(
-            deckId = deckId,
-            front = front,
-            back = front,
-            createdAt = 0L,
-            easinessFactor = easinessFactor,
-            repetitionNumber = repetitionNumber,
-            intervalDays = intervalDays,
-            dueDate = dueDate,
-        ),
-    )
+    ): String {
+        val id = java.util.UUID.randomUUID().toString()
+        cardDao.insertCard(
+            CardEntity(
+                id = id,
+                deckId = deckId,
+                front = front,
+                back = front,
+                createdAt = 0L,
+                easinessFactor = easinessFactor,
+                repetitionNumber = repetitionNumber,
+                intervalDays = intervalDays,
+                dueDate = dueDate,
+            ),
+        )
+        return id
+    }
 
     @Test
     fun `S16 dueCards returns only due cards with scheduling fields`() = runBlocking {

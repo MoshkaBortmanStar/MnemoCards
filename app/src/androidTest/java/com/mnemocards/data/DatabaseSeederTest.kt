@@ -8,6 +8,7 @@ import com.mnemocards.data.db.CardDao
 import com.mnemocards.data.db.DatabaseSeeder
 import com.mnemocards.data.db.DeckDao
 import com.mnemocards.data.db.MnemoCardsDatabase
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -20,6 +21,8 @@ import org.junit.runner.RunWith
  * S24, S29: идемпотентный сидинг базовой колоды с параметрами планирования
  * по умолчанию — EF=2.5, №0, интервал 0, dueDate=«сейчас» (все 5 карточек
  * готовы к повторению сегодня); повторный запуск не дублирует данные.
+ *
+ * change-007: сиды получают клиентские UUID (S4/S5).
  */
 @RunWith(AndroidJUnit4::class)
 class DatabaseSeederTest {
@@ -43,15 +46,21 @@ class DatabaseSeederTest {
         db.close()
     }
 
+    private suspend fun seededDeckId(): String =
+        deckDao.observeDecksWithCardCounts().first().single().deckId
+
     @Test
-    fun `S29 first run seeds 5 cards with scheduling defaults`() = runBlocking {
+    fun `S29 first run seeds 5 cards with scheduling defaults and UUIDs`() = runBlocking {
         val before = System.currentTimeMillis()
         DatabaseSeeder.seedIfEmpty(db)
         val after = System.currentTimeMillis()
 
-        val cards = cardDao.getCardsByDeck(deckId = 1L)
+        val deckId = seededDeckId()
+        val cards = cardDao.getCardsByDeck(deckId = deckId)
         assertEquals(5, cards.size)
         cards.forEach { card ->
+            assertTrue("id — клиентский UUID", isUuid(card.id))
+            assertEquals(deckId, card.deckId)
             assertEquals(2.5, card.easinessFactor, 1e-9)
             assertEquals(0, card.repetitionNumber)
             assertEquals(0, card.intervalDays)
@@ -65,7 +74,10 @@ class DatabaseSeederTest {
         DatabaseSeeder.seedIfEmpty(db)
         DatabaseSeeder.seedIfEmpty(db)
 
-        val cards = cardDao.getCardsByDeck(deckId = 1L)
+        val cards = cardDao.getCardsByDeck(deckId = seededDeckId())
         assertEquals(5, cards.size)
     }
+
+    private fun isUuid(value: String): Boolean =
+        runCatching { java.util.UUID.fromString(value) }.isSuccess
 }
