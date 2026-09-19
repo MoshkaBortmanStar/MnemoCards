@@ -1,10 +1,27 @@
 package com.mnemocards
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStore
 import com.mnemocards.data.db.MnemoCardsDatabase
 import com.mnemocards.data.file.CsvFileGateway
 import com.mnemocards.data.file.SafCsvFileGateway
+import com.mnemocards.data.network.SyncApi
 import com.mnemocards.data.sync.SyncFlagDataStore
+import com.mnemocards.data.syncsettings.DefaultSyncSettingsStorage
+import com.mnemocards.data.syncsettings.DataStoreKeyValueStore
+import com.mnemocards.data.syncsettings.EncryptedTokenStorage
+import com.mnemocards.data.syncsettings.KeystoreTokenCipher
+import com.mnemocards.data.syncsettings.SyncSettingsRepository
+import com.mnemocards.data.syncsettings.SyncSettingsStorage
+import com.mnemocards.data.syncsettings.TokenStorage
+import java.util.concurrent.TimeUnit
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import retrofit2.Retrofit
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
 
 /**
  * Ручной DI-контейнер приложения: singleton-зависимости создаются
@@ -14,11 +31,14 @@ import com.mnemocards.data.sync.SyncFlagDataStore
  * Room — единый источник истины: UI-слой читает колоды и карточки
  * через DAO и [com.mnemocards.data.repository.RoomCardRepository].
  *
- * change-007: добавлен [syncFlagDataStore] — персистентный флаг
- * «синхронизация включена» (DataStore, по умолчанию выключен, S14);
- * он определяет режим удаления: физический или мягкий (S17–S20).
- * UI-переключателя в этой фиче нет — флагом будет управлять будущий
- * экран настроек сервера (S15).
+ * change-007: [syncFlagDataStore] — персистентный флаг «синхронизация
+ * включена» (DataStore, по умолчанию выключен), определяет режим
+ * удаления: физический или мягкий.
+ *
+ * change-008: добавлен экран настроек синхронизации — адрес сервера
+ * хранится открытым текстом (не секрет), токены — зашифрованными ключом
+ * из Android Keystore, пароль не сохраняется (S16). Сетевой слой —
+ * DTO, сгенерированные из specs/openapi.yaml (S22).
  */
 class AppContainer(context: Context) {
 
@@ -35,4 +55,62 @@ class AppContainer(context: Context) {
     /** Единственный на процесс экземпляр хранилища флага синхронизации (S14–S16). */
     val syncFlagDataStore: SyncFlagDataStore =
         SyncFlagDataStore.fromContext(context.applicationContext)
+
+    /**
+     * Key-value хранилище настроек клиента синхронизации. Отдельный файл
+     * DataStore (не файл флага): у Preferences DataStore один файл —
+     * один экземпляр на процесс.
+     */
+    private val clientSettingsDataStore: DataStore<Preferences> =
+        context.applicationContext.clientSettingsDataStore
+
+    /** Шифратор токенов ключом из Android Keystore (S16). */
+    private val tokenCipher = KeystoreTokenCipher()
+
+    /** Токены — только в зашифрованном виде; пароль нигде не хранится (S16). */
+    private val tokenStorage: TokenStorage =
+        EncryptedTokenStorage(DataStoreKeyValueStore(clientSettingsDataStore), tokenCipher)
+
+    /**
+     * Адрес сервера и признак «подключено»; успешный вход включает флаг
+     * синхронизации, выход — выключает (T18), режим удаления не
+     * дублируется здесь.
+     */
+    val syncSettingsStorage: SyncSettingsStorage =
+        DefaultSyncSettingsStorage(
+            store = DataStoreKeyValueStore(clientSettingsDataStore),
+            tokenStorage = tokenStorage,
+            onSyncFlagChanged = { enabled ->
+                syncFlagDataStore.setSyncEnabled(enabled)
+            },
+        )
+
+    /**
+     * Сетевой интерфейс: Retrofit с kotlinx-serialization над DTO из
+     * specs/openapi.yaml. Базовый адрес технический — реальный сервер
+     * подставляется в каждом вызове из поля «Адрес сервера» (@Url).
+     */
+    private val syncApi: SyncApi = Retrofit.Builder()
+        .client(
+            OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .build(),
+        )
+        .baseUrl("https://localhost/")
+        .addConverterFactory(
+            Json { ignoreUnknownKeys = true }
+                .asConverterFactory("application/json".toMediaType()),
+        )
+        .build()
+        .create(SyncApi::class.java)
+
+    val syncSettingsRepository: SyncSettingsRepository =
+        SyncSettingsRepository(syncApi, syncSettingsStorage, tokenStorage)
+
+    private companion object {
+        private val Context.clientSettingsDataStore: DataStore<Preferences> by preferencesDataStore(
+            name = "sync_settings_client",
+        )
+    }
 }

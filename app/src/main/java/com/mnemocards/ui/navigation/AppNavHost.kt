@@ -25,8 +25,13 @@ import com.mnemocards.ui.deckcontent.DeckContentUiState
 import com.mnemocards.ui.deckcontent.DeckContentViewModel
 import com.mnemocards.ui.decklist.DeckListScreen
 import com.mnemocards.ui.decklist.DeckListViewModel
+import com.mnemocards.data.syncsettings.SyncSettingsRepository
+import com.mnemocards.data.syncsettings.SyncSettingsStorage
 import com.mnemocards.ui.review.ReviewScreen
 import com.mnemocards.ui.review.ReviewViewModel
+import com.mnemocards.ui.syncsettings.SyncSettingsScreen
+import com.mnemocards.ui.syncsettings.SyncSettingsViewModel
+import com.mnemocards.ui.syncsettings.SyncSettingsViewModelFactory
 
 /**
  * Маршруты приложения:
@@ -46,6 +51,7 @@ object Routes {
     const val DECK_CONTENT = "deck/{deckId}"
     const val CARD_FORM = "deck/{deckId}/edit?cardId={cardId}"
     const val REVIEW = "review/{deckId}"
+    const val SYNC_SETTINGS = "syncsettings"
 
     fun deckContent(deckId: String) = "deck/$deckId"
     fun cardForm(deckId: String, cardId: String? = null) =
@@ -58,6 +64,8 @@ fun AppNavHost(
     db: MnemoCardsDatabase,
     csvFileGateway: CsvFileGateway,
     syncFlagDataStore: SyncFlagDataStore,
+    syncSettingsRepository: SyncSettingsRepository,
+    syncSettingsStorage: SyncSettingsStorage,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -78,6 +86,7 @@ fun AppNavHost(
                 viewModel = viewModel,
                 onDeckClick = { deck -> navController.navigate(Routes.deckContent(deck.id)) },
                 onTrainDeck = { deckId -> navController.navigate(Routes.review(deckId)) },
+                onOpenSyncSettings = { navController.navigate(Routes.SYNC_SETTINGS) },
             )
         }
 
@@ -193,6 +202,26 @@ fun AppNavHost(
                         inclusive = false,
                     )
                 },
+            )
+        }
+
+        // change-008, S1: настройки синхронизации — маршрут существующего
+        // NavHost; состояние переживает смену конфигурации (S23).
+        composable(Routes.SYNC_SETTINGS) {
+            val viewModel: SyncSettingsViewModel = viewModel {
+                SyncSettingsViewModelFactory(syncSettingsRepository, syncSettingsStorage)
+                    .create(SyncSettingsViewModel::class.java)
+            }
+            val state by viewModel.uiState.collectAsStateWithLifecycle()
+            SyncSettingsScreen(
+                state = state,
+                onAddressChanged = viewModel::onAddressChanged,
+                onUsernameChanged = viewModel::onUsernameChanged,
+                onPasswordChanged = viewModel::onPasswordChanged,
+                onCheckConnection = viewModel::checkConnection,
+                onLogin = viewModel::login,
+                onLogout = viewModel::logout,
+                onBack = { navController.popBackStack() },
             )
         }
     }

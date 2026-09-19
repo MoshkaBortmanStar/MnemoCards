@@ -8,6 +8,8 @@ import androidx.compose.ui.test.performClick
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import okhttp3.MediaType.Companion.toMediaType
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.mnemocards.data.db.MnemoCardsDatabase
 import com.mnemocards.data.file.SafCsvFileGateway
 import com.mnemocards.data.repository.RoomCardRepository
@@ -46,6 +48,34 @@ class AppNavHostTest {
         repository.addCard(deckId, "hello", "привет")
         repository.addCard(deckId, "dog", "собака")
 
+        // Зависимости экрана настроек синхронизации (change-008): тот же
+        // вайринг, что в AppContainer, на собственном файле DataStore.
+        val dataStore = androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(
+            produceFile = { java.io.File(context.filesDir, "navhost-test-sync.preferences_pb") },
+        )
+        val keyValueStore = com.mnemocards.data.syncsettings.DataStoreKeyValueStore(dataStore)
+        val tokenStorage = com.mnemocards.data.syncsettings.EncryptedTokenStorage(
+            keyValueStore,
+            com.mnemocards.data.syncsettings.KeystoreTokenCipher(),
+        )
+        val syncSettingsStorage = com.mnemocards.data.syncsettings.DefaultSyncSettingsStorage(
+            keyValueStore,
+            tokenStorage,
+        ) { }
+        val syncApi = retrofit2.Retrofit.Builder()
+            .baseUrl("https://localhost/")
+            .addConverterFactory(
+                kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+                    .asConverterFactory("application/json".toMediaType()),
+            )
+            .build()
+            .create(com.mnemocards.data.network.SyncApi::class.java)
+        val syncSettingsRepository = com.mnemocards.data.syncsettings.SyncSettingsRepository(
+            api = syncApi,
+            settingsStorage = syncSettingsStorage,
+            tokenStorage = tokenStorage,
+        )
+
         composeRule.setContent {
             MnemoCardsTheme {
                 AppNavHost(
@@ -56,6 +86,8 @@ class AppNavHostTest {
                     syncFlagDataStore = com.mnemocards.data.sync.SyncFlagDataStore.fromContext(
                         InstrumentationRegistry.getInstrumentation().targetContext,
                     ),
+                    syncSettingsRepository = syncSettingsRepository,
+                    syncSettingsStorage = syncSettingsStorage,
                 )
             }
         }

@@ -36,13 +36,45 @@ prompt: 'Экран настроек синхронизации и вход на
   слои и пакеты не меняются, новых NavHost не создаётся — экран добавляется маршрутом
   в существующий.'
 created: 2026-09-19 14:17
-updated: 2026-09-19 15:00
+updated: 2026-09-19 15:20
 mode: llm
 status:
   proposal: generated
   spec-bdd: generated
   tasks: generated
+  code-generation: generated
 git:
   branch: change/008-ekran-nastroek-sinkhronizatsii
   worktree: /Users/mikhailbutorin/AndroidStudioProjects/MnemoCards-wt-008
   base_branch: feature/feature-001
+codegen:
+  batch_size: 3
+  task_count: 20
+  done_batches: 7
+  files:
+  - app/build.gradle.kts
+  - app/src/main/java/com/mnemocards/AppContainer.kt
+  - app/src/main/java/com/mnemocards/data/network/SyncApi.kt
+  - app/src/main/java/com/mnemocards/data/syncsettings/KeystoreTokenCipher.kt
+  - app/src/main/java/com/mnemocards/data/syncsettings/SyncSettingsRepository.kt
+  - app/src/main/java/com/mnemocards/data/syncsettings/SyncSettingsStorage.kt
+  - app/src/main/java/com/mnemocards/data/syncsettings/TokenCipher.kt
+  - app/src/main/java/com/mnemocards/data/syncsettings/TokenStorage.kt
+  - app/src/main/java/com/mnemocards/domain/model/ConnectionCheckResult.kt
+  - app/src/main/java/com/mnemocards/domain/model/LoginOutcome.kt
+  - app/src/main/java/com/mnemocards/ui/decklist/DeckListScreen.kt
+  - app/src/main/java/com/mnemocards/ui/navigation/AppNavHost.kt
+  - app/src/main/java/com/mnemocards/ui/syncsettings/SyncSettingsScreen.kt
+  - app/src/main/java/com/mnemocards/ui/syncsettings/SyncSettingsUiState.kt
+  - app/src/main/java/com/mnemocards/ui/syncsettings/SyncSettingsViewModel.kt
+  - app/src/test/java/com/mnemocards/StructureInvariantsTest.kt
+  - app/src/test/java/com/mnemocards/data/OfflineFirstRegressionTest.kt
+  - app/src/test/java/com/mnemocards/data/syncsettings/SyncFlagDataStoreSwitchTest.kt
+  - app/src/test/java/com/mnemocards/data/syncsettings/SyncFlagDeletionModeTest.kt
+  - app/src/test/java/com/mnemocards/data/syncsettings/SyncLoginTogglesDeletionModeTest.kt
+  - app/src/test/java/com/mnemocards/data/syncsettings/SyncSettingsRepositoryTest.kt
+  - app/src/test/java/com/mnemocards/data/syncsettings/TestStores.kt
+  - app/src/test/java/com/mnemocards/data/syncsettings/TokenStorageTest.kt
+  - app/src/test/java/com/mnemocards/ui/syncsettings/SyncSettingsViewModelTest.kt
+  - gradle/libs.versions.toml
+  - specs/openapi.yaml

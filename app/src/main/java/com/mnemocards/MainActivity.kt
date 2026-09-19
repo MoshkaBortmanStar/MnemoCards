@@ -22,6 +22,8 @@ class MainActivity : ComponentActivity() {
                     db = container.database,
                     csvFileGateway = container.csvFileGateway,
                     syncFlagDataStore = container.syncFlagDataStore,
+                    syncSettingsRepository = container.syncSettingsRepository,
+                    syncSettingsStorage = container.syncSettingsStorage,
                 )
             }
         }

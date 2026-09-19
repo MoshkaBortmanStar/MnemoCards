@@ -1,7 +1,9 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.openapi.generator)
 }
 
 android {
@@ -42,6 +44,9 @@ android {
     sourceSets {
         // JSON схем Room — как assets androidTest: их читает MigrationTestHelper (S28).
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
+        // DTO сети генерируются из specs/openapi.yaml (S22) тем же генератором,
+        // что на сервере; ручные сетевые модели в проекте не заводятся.
+        getByName("main").kotlin.srcDir("$buildDir/generated/openapi/src/main/kotlin")
     }
 }
 
@@ -54,6 +59,28 @@ kotlin {
 ksp {
     // Экспорт схем Room для MigrationTestHelper (T5).
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+// Генерация сетевых DTO из контракта (specs/openapi.yaml — источник истины).
+openApiGenerate {
+    generatorName.set("kotlin")
+    inputSpec.set("$rootDir/specs/openapi.yaml")
+    outputDir.set("$buildDir/generated/openapi")
+    packageName.set("com.mnemocards.data.network.dto")
+    library.set("jvm-okhttp4")
+    configOptions.set(
+        mapOf(
+            "serializationLibrary" to "kotlinx_serialization",
+        ),
+    )
+}
+
+tasks.named("preBuild") {
+    dependsOn(tasks.named("openApiGenerate"))
+}
+
+tasks.withType<Test>().configureEach {
+    dependsOn(tasks.named("openApiGenerate"))
 }
 
 dependencies {
@@ -73,9 +100,15 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.okhttp)
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.kotlinx.serialization)
     ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockwebserver)
+    testImplementation(libs.okhttp.tls)
     testImplementation(libs.robolectric)
     testImplementation(libs.turbine)
     testImplementation(libs.androidx.test.core.ktx)

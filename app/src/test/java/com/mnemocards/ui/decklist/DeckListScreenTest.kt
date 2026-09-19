@@ -109,7 +109,8 @@ class DeckListScreenTest {
                 DeckListScreen(
                     viewModel = viewModel,
                     onDeckClick = { },
-                    onTrainDeck = { }
+                    onTrainDeck = { },
+                    onOpenSyncSettings = { }
                 )
             }
         }
