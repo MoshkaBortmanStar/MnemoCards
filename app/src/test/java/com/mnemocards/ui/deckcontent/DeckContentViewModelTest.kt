@@ -72,6 +72,18 @@ class DeckContentViewModelTest {
 
         override suspend fun getCardById(id: String): CardEntity? = null
 
+        override suspend fun dueCards(deckId: String, now: Long): List<com.mnemocards.domain.model.Card> =
+            error("not used in this test")
+
+        override suspend fun applyGrade(
+            card: com.mnemocards.domain.model.Card,
+            grade: com.mnemocards.domain.scheduler.ReviewGrade,
+            now: Long,
+        ): Unit = error("not used in this test")
+
+        override suspend fun deckExists(deckId: String): Boolean = false
+
+
         override suspend fun addCard(
             deckId: String,
             front: String,

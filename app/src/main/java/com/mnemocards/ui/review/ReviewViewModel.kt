@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlin.time.Duration
-import com.mnemocards.data.CardRepository
+import com.mnemocards.data.repository.CardRepository
 import com.mnemocards.domain.model.Card
 import com.mnemocards.domain.scheduler.ReviewGrade
 import com.mnemocards.domain.scheduler.SchedulingState

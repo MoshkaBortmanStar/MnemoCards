@@ -110,7 +110,7 @@ class PersistenceIntegrationTest {
     fun deletedBaseDeck_isNotResurrected_afterReopenAndReSeed() = runTest {
         withDb { db ->
             DatabaseSeeder.seedIfEmpty(db)
-            val baseDeckId = db.deckDao().observeDecksWithCardCounts().first().single().deckId
+            val baseDeckId = db.deckDao().observeDecksWithStats(1_000).first().single().deckId
             db.deckDao().deleteDeckWithCards(baseDeckId)
         }
 

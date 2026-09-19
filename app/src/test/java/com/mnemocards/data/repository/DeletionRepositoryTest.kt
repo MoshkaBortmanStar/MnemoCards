@@ -286,7 +286,7 @@ class DeletionRepositoryTest {
         assertEquals(
             "S20: колода исчезла из списка",
             emptyList<String>(),
-            database.deckDao().observeDecksWithCardCounts().first().map { it.deckId },
+            database.deckDao().observeDecksWithStats(1_000).first().map { it.deckId },
         )
 
         scope.cancel()

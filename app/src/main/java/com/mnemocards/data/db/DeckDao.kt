@@ -36,20 +36,24 @@ interface DeckDao {
     suspend fun getDeckByIdIncludingDeleted(id: String): DeckEntity?
 
     /**
-     * Список колод для UI: мягко удалённые скрыты, счётчик — только
-     * по живым карточкам (S21). Порядок — rowid: колоды в порядке
+     * Строки списка колод (S21): мягко удалённые колоды скрыты, счётчики —
+     * только по живым карточкам; dueToday — живые карточки с
+     * dueDate <= [now] (S25–S27). Порядок — rowid: колоды в порядке
      * создания (числовой id больше не monotonic, rowid остаётся).
      */
     @Query(
         """
         SELECT decks.id AS deckId, decks.name AS deckName,
-               (SELECT COUNT(*) FROM cards
-                WHERE cards.deckId = decks.id AND cards.isDeleted = 0) AS cardCount
-        FROM decks WHERE decks.isDeleted = 0
+               COUNT(cards.id) AS total,
+               IFNULL(SUM(CASE WHEN cards.dueDate <= :now THEN 1 ELSE 0 END), 0) AS dueToday
+        FROM decks
+        LEFT JOIN cards ON cards.deckId = decks.id AND cards.isDeleted = 0
+        WHERE decks.isDeleted = 0
+        GROUP BY decks.id
         ORDER BY decks.rowid ASC
         """
     )
-    fun observeDecksWithCardCounts(): Flow<List<DeckWithCardCount>>
+    fun observeDecksWithStats(now: Long): Flow<List<DeckWithStats>>
 
     /**
      * Переименование — локальная правка: ставит isChanged = 1 и

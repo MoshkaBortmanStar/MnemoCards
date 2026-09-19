@@ -5,6 +5,10 @@ import com.mnemocards.data.db.CardEntity
 import com.mnemocards.data.db.DeckDao
 import com.mnemocards.data.db.DeckEntity
 import com.mnemocards.data.sync.SyncFlagDataStore
+import com.mnemocards.domain.model.Card
+import com.mnemocards.domain.scheduler.ReviewGrade
+import com.mnemocards.domain.scheduler.SchedulingState
+import com.mnemocards.domain.scheduler.Sm2Scheduler
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -40,6 +44,11 @@ sealed interface CardImportResult {
  * revision + 1 (S11, S13); удаление ветвится по флагу синхронизации:
  * физическое (S17) или мягкое (S19). Мягко удалённые записи скрыты
  * из всех запросов для UI и экспорта (S21).
+ *
+ * Единственный репозиторий карточек (инвариант MAIN.md «одна сущность —
+ * один класс»): управление (CRUD, импорт/экспорт) и тренировка
+ * (отбор назревших, оценка) живут вместе — логика ведения isChanged и
+ * revision сосредоточена в одном месте.
  */
 interface CardRepository {
 
@@ -53,6 +62,23 @@ interface CardRepository {
     fun observeCardCount(deckId: String): Flow<Int>
 
     suspend fun getCardById(id: String): CardEntity?
+
+    /**
+     * Назревшие карточки колоды (dueDate <= now) с параметрами
+     * планирования (S16) — отбор в сессию тренировки.
+     */
+    suspend fun dueCards(deckId: String, now: Long): List<Card>
+
+    /**
+     * Применяет оценку [grade] и записывает результат SM-2 в Room (S1–S8):
+     * оценка — правка данных, карточка помечается изменённой, revision + 1
+     * (контракт синхронизации: параметры повторений обязательны в каждом
+     * изменении, specs/API.md).
+     */
+    suspend fun applyGrade(card: Card, grade: ReviewGrade, now: Long)
+
+    /** Существование живой колоды — состояние NotFound при устаревшем id (S32). */
+    suspend fun deckExists(deckId: String): Boolean
 
     /** Создаёт карточку с клиентским UUID; createdAt — позиция «первой сверху». */
     suspend fun addCard(deckId: String, front: String, back: String): CardOperationResult
@@ -107,6 +133,23 @@ class RoomCardRepository(
 
     override suspend fun getCardById(id: String): CardEntity? =
         cardDao.getCardById(id)
+
+    override suspend fun dueCards(deckId: String, now: Long): List<Card> =
+        cardDao.getDueCards(deckId, now).map { it.toDomain() }
+
+    override suspend fun applyGrade(card: Card, grade: ReviewGrade, now: Long) {
+        val next = Sm2Scheduler.next(card.toSchedulingState(), grade, now)
+        cardDao.updateScheduling(
+            cardId = card.id,
+            easinessFactor = next.easinessFactor,
+            repetitionNumber = next.repetitionNumber,
+            intervalDays = next.intervalDays,
+            dueDate = next.dueDate,
+        )
+    }
+
+    override suspend fun deckExists(deckId: String): Boolean =
+        cardDao.deckExists(deckId)
 
     override suspend fun addCard(
         deckId: String,
@@ -236,4 +279,22 @@ class RoomCardRepository(
         syncFlagDataStore?.let { store ->
             runCatching { store.syncEnabled.first() }.getOrDefault(false)
         } ?: false
+
+    private fun CardEntity.toDomain(): Card = Card(
+        id = id,
+        deckId = deckId,
+        front = front,
+        back = back,
+        easinessFactor = easinessFactor,
+        repetitionNumber = repetitionNumber,
+        intervalDays = intervalDays,
+        dueDate = dueDate,
+    )
+
+    private fun Card.toSchedulingState(): SchedulingState = SchedulingState(
+        easinessFactor = easinessFactor,
+        repetitionNumber = repetitionNumber,
+        intervalDays = intervalDays,
+        dueDate = dueDate,
+    )
 }

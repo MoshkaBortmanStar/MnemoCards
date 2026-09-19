@@ -25,7 +25,7 @@ class RoomDeckRepository(
 ) : DeckRepository {
 
     override fun observeDecks(): Flow<List<Deck>> =
-        deckDao.observeDecksWithCardCounts().map { list ->
+        deckDao.observeDecksWithStats(System.currentTimeMillis()).map { list ->
             list.map { it.toDomain() }
         }
 
@@ -65,10 +65,10 @@ class RoomDeckRepository(
             runCatching { store.syncEnabled.first() }.getOrDefault(false)
         } ?: false
 
-    private fun com.mnemocards.data.db.DeckWithCardCount.toDomain(): Deck =
+    private fun com.mnemocards.data.db.DeckWithStats.toDomain(): Deck =
         Deck(
             id = deckId,
             name = deckName,
-            cardCount = cardCount,
+            cardCount = total,
         )
 }

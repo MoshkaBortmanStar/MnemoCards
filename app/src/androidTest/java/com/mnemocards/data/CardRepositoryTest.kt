@@ -8,6 +8,7 @@ import com.mnemocards.data.db.DeckDao
 import com.mnemocards.data.db.CardDao
 import com.mnemocards.data.db.CardEntity
 import com.mnemocards.data.db.DeckEntity
+import com.mnemocards.data.repository.RoomCardRepository
 import com.mnemocards.data.db.MnemoCardsDatabase
 import com.mnemocards.domain.scheduler.ReviewGrade
 import kotlinx.coroutines.flow.first
@@ -47,8 +48,8 @@ class CardRepositoryTest {
             .build()
         deckDao = db.deckDao()
         cardDao = db.cardDao()
-        repository = RoomCardRepository(cardDao)
-        countsRepository = RoomDeckCountsRepository(cardDao)
+        repository = RoomCardRepository(deckDao, cardDao)
+        countsRepository = RoomDeckCountsRepository(deckDao)
         deckId = java.util.UUID.randomUUID().toString()
         deckDao.insertDeck(DeckEntity(id = deckId, name = "Базовая"))
     }

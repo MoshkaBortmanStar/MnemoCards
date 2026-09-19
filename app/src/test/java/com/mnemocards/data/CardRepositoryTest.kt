@@ -12,6 +12,7 @@ import com.mnemocards.data.db.MnemoCardsDatabase
 import com.mnemocards.data.repository.CardOperationResult
 import com.mnemocards.data.repository.CardRepository
 import com.mnemocards.data.repository.RoomCardRepository
+import com.mnemocards.domain.scheduler.ReviewGrade
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
@@ -208,6 +209,22 @@ class CardRepositoryTest {
         assertEquals(longBack, card.back)
     }
 
+    // change-007: оценка ответа — правка данных. Контракт синхронизации
+    // (specs/API.md) обязывает передавать параметры повторений в каждом
+    // изменении, поэтому applyGrade помечает карточку изменённой и
+    // наращивает revision — иначе прогресс занятий не попал бы на сервер.
+    @Test
+    fun applyGrade_marksCardChanged_andIncrementsRevision() = runTest {
+        val id = repository.addOk(deckId, "cat", "кошка")
+
+        val card = repository.dueCards(deckId, now = Long.MAX_VALUE).single()
+        repository.applyGrade(card, ReviewGrade.GOOD, now = 1_000_000L)
+
+        val row = db.cardDao().getCardByIdIncludingDeleted(id)!!
+        assertTrue("оценка помечает карточку изменённой (isChanged = true)", row.isChanged)
+        assertEquals("revision вырос на 1", 2, row.revision)
+    }
+
     // ---------- S26: 500-аналоги на фейковом DAO, бросающем исключения ----------
 
     /** DAO, который падает при любом обращении к переданным операциям. */
@@ -239,8 +256,6 @@ class CardRepositoryTest {
         override suspend fun maxCreatedAtInDeck(deckId: String): Long? = throw boom
         override suspend fun getDueCards(deckId: String, now: Long): List<CardEntity> = throw boom
         override fun countDue(deckId: String, now: Long): Flow<Int> = throw boom
-        override fun observeDeckCounts(now: Long): Flow<List<com.mnemocards.data.db.DeckWithCardCounts>> =
-            throw boom
         override suspend fun deckExists(deckId: String): Boolean = throw boom
         override suspend fun updateScheduling(
             cardId: String,
@@ -257,7 +272,7 @@ class CardRepositoryTest {
         override suspend fun getDeckByName(name: String): DeckEntity? = null
         override suspend fun getDeckByIdIncludingDeleted(id: String): DeckEntity? = null
         override fun observeDeckById(id: String): Flow<DeckEntity?> = throw IllegalStateException()
-        override fun observeDecksWithCardCounts(): Flow<List<com.mnemocards.data.db.DeckWithCardCount>> =
+        override fun observeDecksWithStats(now: Long): Flow<List<com.mnemocards.data.db.DeckWithStats>> =
             throw IllegalStateException()
         override suspend fun renameDeck(id: String, name: String) = Unit
         override suspend fun deleteCardsByDeckId(deckId: String) = Unit

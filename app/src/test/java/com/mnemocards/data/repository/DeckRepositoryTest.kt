@@ -60,7 +60,7 @@ class DeckRepositoryTest {
     /** Создаёт колоду через репозиторий и возвращает её UUID из списка. */
     private suspend fun createDeckViaRepository(name: String): String {
         deckRepository.createDeck(name)
-        return db.deckDao().observeDecksWithCardCounts().first()
+        return db.deckDao().observeDecksWithStats(1_000).first()
             .first { it.deckName == name }.deckId
     }
 

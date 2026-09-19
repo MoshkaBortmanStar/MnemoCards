@@ -59,6 +59,17 @@ class CardFormViewModelTest {
 
         override suspend fun getCardById(id: String): CardEntity? = cardById
 
+        override suspend fun dueCards(deckId: String, now: Long): List<com.mnemocards.domain.model.Card> =
+            error("not used in this test")
+
+        override suspend fun applyGrade(
+            card: com.mnemocards.domain.model.Card,
+            grade: com.mnemocards.domain.scheduler.ReviewGrade,
+            now: Long,
+        ): Unit = error("not used in this test")
+
+        override suspend fun deckExists(deckId: String): Boolean = false
+
         // CSV-перенос (change-006): форме не нужен, заглушки для интерфейса.
         override suspend fun exportCardTexts(deckId: String): List<Pair<String, String>>? = null
 

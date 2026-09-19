@@ -47,7 +47,7 @@ class DatabaseSeederTest {
     }
 
     private suspend fun seededDeckId(): String =
-        deckDao.observeDecksWithCardCounts().first().single().deckId
+        deckDao.observeDecksWithStats(1_000).first().single().deckId
 
     @Test
     fun `S29 first run seeds 5 cards with scheduling defaults and UUIDs`() = runBlocking {

@@ -49,11 +49,11 @@ class SeedingTest {
     fun cleanInstall_seedingCreatesDeckWithFiveCardsAndClientUuids() = runTest {
         DatabaseSeeder.seedIfEmpty(database)
 
-        val decks = database.deckDao().observeDecksWithCardCounts().first()
+        val decks = database.deckDao().observeDecksWithStats(1_000).first()
         assertEquals("S5: сидинг создаёт ровно одну колоду", 1, decks.size)
 
         val deckRow = decks.first()
-        assertEquals("S5: колода видна в списке со счётчиком 5", 5, deckRow.cardCount)
+        assertEquals("S5: колода видна в списке со счётчиком 5", 5, deckRow.total)
 
         // id записи — корректный UUID, сгенерированный на клиенте.
         assertTrue("S5: id колоды — валидный UUID", isUuid(deckRow.deckId))
@@ -86,9 +86,9 @@ class SeedingTest {
         DatabaseSeeder.seedIfEmpty(database)
         DatabaseSeeder.seedIfEmpty(database)
 
-        val decks = database.deckDao().observeDecksWithCardCounts().first()
+        val decks = database.deckDao().observeDecksWithStats(1_000).first()
         assertEquals("S5: повторный сидинг не дублирует колоду", 1, decks.size)
-        assertEquals("S5: счётчик карточек после повторов — 5", 5, decks.first().cardCount)
+        assertEquals("S5: счётчик карточек после повторов — 5", 5, decks.first().total)
         assertEquals(
             "S5: физических строк карточек не больше 5",
             5,

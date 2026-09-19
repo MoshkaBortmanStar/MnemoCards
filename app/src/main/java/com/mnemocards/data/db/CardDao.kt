@@ -107,24 +107,6 @@ interface CardDao {
     fun countDue(deckId: String, now: Long): Flow<Int>
 
     /**
-     * Агрегат для списка колод одним запросом (S25–S27): только живые
-     * колоды и живые карточки (S21).
-     */
-    @Query(
-        """
-        SELECT decks.id AS deckId,
-               COUNT(cards.id) AS total,
-               SUM(CASE WHEN cards.dueDate <= :now THEN 1 ELSE 0 END) AS dueToday
-        FROM decks
-        LEFT JOIN cards ON cards.deckId = decks.id AND cards.isDeleted = 0
-        WHERE decks.isDeleted = 0
-        GROUP BY decks.id
-        ORDER BY decks.rowid
-        """,
-    )
-    fun observeDeckCounts(now: Long): Flow<List<DeckWithCardCounts>>
-
-    /**
      * Существование живой колоды — для состояния NotFound (S32) и
      * идентификации мягко удалённой колоды с отсутствующей (S9).
      */
@@ -133,8 +115,10 @@ interface CardDao {
 
     /**
      * Запись результата оценки: новые EF / № повторения / интервал / due
-     * (S1). Оценка — не правка данных: isChanged и revision не трогает
-     * (S17 спеки change-007).
+     * (S1). Оценка — правка данных: контракт синхронизации (specs/API.md,
+     * «Параметры интервальных повторений… обязательны в каждом изменении»)
+     * требует передавать результат занятия на сервер, поэтому запрос
+     * помечает карточку изменённой и наращивает revision (change-007).
      */
     @Query(
         """
@@ -142,7 +126,9 @@ interface CardDao {
             easinessFactor = :easinessFactor,
             repetitionNumber = :repetitionNumber,
             intervalDays = :intervalDays,
-            dueDate = :dueDate
+            dueDate = :dueDate,
+            isChanged = 1,
+            revision = revision + 1
         WHERE id = :cardId
         """,
     )

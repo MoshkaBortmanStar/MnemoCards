@@ -96,11 +96,11 @@ class DaoFilterTest {
         // Мягко удаляем вторую колоду — её не должно быть в списке.
         database.deckDao().softDeleteDeckById(deckDeleted)
 
-        val decks = database.deckDao().observeDecksWithCardCounts().first()
+        val decks = database.deckDao().observeDecksWithStats(1_000).first()
 
         assertEquals("S21: в списке только неудалённая колода", listOf(deckA), decks.map { it.deckId })
         val row = decks.first()
-        assertEquals("S21: счётчик колоды A — 3, а не 5", 3, row.cardCount)
+        assertEquals("S21: счётчик колоды A — 3, а не 5", 3, row.total)
     }
 
     // --- S21: агрегат (total, dueToday) без мягко удалённых ---
@@ -115,7 +115,7 @@ class DaoFilterTest {
         insertCard(cardB, deckA, "b")
         database.cardDao().softDeleteCard(cardB)
 
-        val counts = database.cardDao().observeDeckCounts(now = 1_000).first()
+        val counts = database.deckDao().observeDecksWithStats(now = 1_000).first()
 
         val row = counts.first { it.deckId == deckA }
         assertEquals("S21: total — только живые карточки", 1, row.total)

@@ -49,7 +49,7 @@ class MigrationTest {
             .build()
 
         // После перехода на UUID колода ищется по сгенерированному id.
-        val deck = db.deckDao().observeDecksWithCardCounts().first().single()
+        val deck = db.deckDao().observeDecksWithStats(1_000).first().single()
         val cards = db.cardDao().observeCardsByDeck(deck.deckId).first()
         assertEquals(2, cards.size)
         assertEquals(setOf("hello", "world"), cards.map { it.front }.toSet())
@@ -106,7 +106,7 @@ class MigrationTest {
             .allowMainThreadQueries()
             .build()
 
-        val decks = db.deckDao().observeDecksWithCardCounts().first()
+        val decks = db.deckDao().observeDecksWithStats(1_000).first()
         assertEquals(2, decks.size)
         // Все колоды получили различные UUID.
         assertEquals(2, decks.map { it.deckId }.distinct().size)
@@ -162,7 +162,7 @@ class MigrationTest {
             .allowMainThreadQueries()
             .build()
 
-        assertTrue(db.deckDao().observeDecksWithCardCounts().first().isEmpty())
+        assertTrue(db.deckDao().observeDecksWithStats(1_000).first().isEmpty())
 
         db.close()
     }
@@ -177,7 +177,7 @@ class MigrationTest {
         DatabaseSeeder.seedIfEmpty(db)
         DatabaseSeeder.seedIfEmpty(db) // повторный вызов — без дубликатов
 
-        val deck = db.deckDao().observeDecksWithCardCounts().first().single()
+        val deck = db.deckDao().observeDecksWithStats(1_000).first().single()
         val cards = db.cardDao().observeCardsByDeck(deck.deckId).first()
         assertEquals(5, cards.size)
         // createdAt DESC: первая в потоке — последняя засеянная ("water").

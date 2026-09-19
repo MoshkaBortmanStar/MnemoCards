@@ -6,10 +6,13 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.mnemocards.data.CardRepository
+import com.mnemocards.data.db.CardEntity
+import com.mnemocards.data.db.DeckEntity
+import com.mnemocards.data.repository.CardRepository
 import com.mnemocards.domain.model.Card
 import com.mnemocards.domain.scheduler.ReviewGrade
 import com.mnemocards.ui.theme.MnemoCardsTheme
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -41,6 +44,37 @@ class ReviewScreenTest {
         }
 
         override suspend fun deckExists(deckId: String): Boolean = true
+
+        override fun observeDeck(deckId: String): Flow<DeckEntity?> = error("not used in this test")
+
+        override fun observeCards(deckId: String): Flow<List<CardEntity>> = error("not used in this test")
+
+        override fun observeCardCount(deckId: String): Flow<Int> = error("not used in this test")
+
+        override suspend fun getCardById(id: String): CardEntity? = error("not used in this test")
+
+        override suspend fun addCard(
+            deckId: String,
+            front: String,
+            back: String,
+        ): com.mnemocards.data.repository.CardOperationResult = error("not used in this test")
+
+        override suspend fun updateCard(
+            cardId: String,
+            front: String,
+            back: String,
+        ): com.mnemocards.data.repository.CardOperationResult = error("not used in this test")
+
+        override suspend fun deleteCard(cardId: String): com.mnemocards.data.repository.CardOperationResult =
+            error("not used in this test")
+
+        override suspend fun exportCardTexts(deckId: String): List<Pair<String, String>>? =
+            error("not used in this test")
+
+        override suspend fun importCards(
+            deckId: String,
+            cards: List<Pair<String, String>>,
+        ): com.mnemocards.data.repository.CardImportResult = error("not used in this test")
     }
 
     private fun newCard(front: String, back: String) = Card(

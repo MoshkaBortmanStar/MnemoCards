@@ -2,7 +2,10 @@ package com.mnemocards.ui.review
 
 import kotlin.time.Duration.Companion.milliseconds
 
-import com.mnemocards.data.CardRepository
+import com.mnemocards.data.db.CardEntity
+import com.mnemocards.data.db.DeckEntity
+import kotlinx.coroutines.flow.Flow
+import com.mnemocards.data.repository.CardRepository
 import com.mnemocards.domain.model.Card
 import com.mnemocards.domain.scheduler.ReviewGrade
 import com.mnemocards.domain.scheduler.SchedulingState
@@ -81,6 +84,37 @@ class ReviewViewModelTest {
         val appliedGrades = mutableListOf<Pair<Card, ReviewGrade>>()
 
         override suspend fun deckExists(deckId: String): Boolean = deckExists
+
+        override fun observeDeck(deckId: String): Flow<DeckEntity?> = error("not used in this test")
+
+        override fun observeCards(deckId: String): Flow<List<CardEntity>> = error("not used in this test")
+
+        override fun observeCardCount(deckId: String): Flow<Int> = error("not used in this test")
+
+        override suspend fun getCardById(id: String): CardEntity? = error("not used in this test")
+
+        override suspend fun addCard(
+            deckId: String,
+            front: String,
+            back: String,
+        ): com.mnemocards.data.repository.CardOperationResult = error("not used in this test")
+
+        override suspend fun updateCard(
+            cardId: String,
+            front: String,
+            back: String,
+        ): com.mnemocards.data.repository.CardOperationResult = error("not used in this test")
+
+        override suspend fun deleteCard(cardId: String): com.mnemocards.data.repository.CardOperationResult =
+            error("not used in this test")
+
+        override suspend fun exportCardTexts(deckId: String): List<Pair<String, String>>? =
+            error("not used in this test")
+
+        override suspend fun importCards(
+            deckId: String,
+            cards: List<Pair<String, String>>,
+        ): com.mnemocards.data.repository.CardImportResult = error("not used in this test")
 
         override suspend fun dueCards(deckId: String, now: Long): List<Card> {
             if (failRead) throw RuntimeException("db read error")

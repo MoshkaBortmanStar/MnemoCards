@@ -16,7 +16,6 @@ import com.mnemocards.data.RoomDeckRepository
 import com.mnemocards.data.db.MnemoCardsDatabase
 import com.mnemocards.data.file.CsvFileGateway
 import com.mnemocards.data.repository.RoomCardRepository
-import com.mnemocards.data.RoomCardRepository as ReviewCardRepository
 import com.mnemocards.data.sync.SyncFlagDataStore
 import com.mnemocards.ui.cardform.CardFormEvent
 import com.mnemocards.ui.cardform.CardFormScreen
@@ -72,7 +71,7 @@ fun AppNavHost(
             val viewModel: DeckListViewModel = viewModel {
                 DeckListViewModel(
                     deckRepository = RoomDeckRepository(db.deckDao(), syncFlagDataStore),
-                    countsRepository = RoomDeckCountsRepository(db.cardDao()),
+                    countsRepository = RoomDeckCountsRepository(db.deckDao()),
                 )
             }
             DeckListScreen(
@@ -181,7 +180,7 @@ fun AppNavHost(
             ) {
                 ReviewViewModel(
                     deckId = deckId,
-                    repository = ReviewCardRepository(db.cardDao()),
+                    repository = RoomCardRepository(db.deckDao(), db.cardDao(), syncFlagDataStore),
                 )
             }
             ReviewScreen(
