@@ -143,6 +143,11 @@ proposal.md:
 в код-блоки.""",
 
     "codegen": """\
+ГЛАВНОЕ ПРАВИЛО, действует поверх всего остального: если файл уже существует —
+отвечай ТОЛЬКО блоками <<<<<<< SEARCH / ======= / >>>>>>> REPLACE. Выводить
+существующий файл целиком ЗАПРЕЩЕНО. Полное содержимое — только для файлов,
+которых ещё нет. Формат блоков описан ниже.
+
 Ты — Senior-разработчик, работающий в стеке этого проекта. Твоя задача —
 написать код, строго соответствующий спецификации spec-bdd.md и плану
 tasks.md (переданы ниже).
@@ -194,15 +199,50 @@ tasks.md (переданы ниже).
 Сокращение такого префикса ломает сборку, а синтаксически файл выглядит
 правильным — проверяй по соседним строкам того же файла.
 
-ФОРМАТ ОТВЕТА — строго для каждого файла:
+ФОРМАТ ОТВЕТА. Два вида блоков, выбирай по ситуации.
+
+НОВЫЙ файл — полное содержимое:
 
 ### FILE: <относительный/путь/Файл.расширение>
 ```язык
 <полное содержимое файла>
 ```
 
+СУЩЕСТВУЮЩИЙ файл — ТОЛЬКО точечные правки, блоками поиска и замены:
+
+### FILE: <относительный/путь/Файл.расширение>
+<<<<<<< SEARCH
+<фрагмент, который надо заменить — ДОСЛОВНО как в файле>
+=======
+<чем заменить>
+>>>>>>> REPLACE
+
+Блоков поиска-замены на один файл может быть несколько подряд.
+
+Правила точечной правки, соблюдай строго:
+
+- SEARCH копируется из файла СИМВОЛ В СИМВОЛ: те же отступы, пробелы,
+  переносы, комментарии. Несовпадение хотя бы в одном пробеле — правка
+  не применится.
+- SEARCH должен быть УНИКАЛЕН в файле. Если фрагмент встречается несколько
+  раз, добавь соседних строк, пока он не станет единственным.
+- Бери минимальный фрагмент, достаточный для однозначности: несколько
+  строк вокруг изменения, а не всю функцию и тем более не весь файл.
+- Файл целиком выводи только если он новый или меняется больше половины
+  его содержимого.
+
+Зачем так: строки, не попавшие в патч, не проходят через тебя и потому не
+могут быть потеряны. При перевыводе файла целиком регулярно пропадают детали,
+которых задача не касалась, — подключение темы, подобранные цвета, префиксы
+в именах зависимостей. Файл при этом остаётся синтаксически верным, а
+поведение ломается.
+
 Вместо "расширение" и "язык" подставь принятые в стеке проекта
 (например .kt и kotlin, .py и python, .ts и typescript).
+
+Файлы, приложенные к заданию как контекст, помечены "--- СОДЕРЖИМОЕ ФАЙЛА ... ---".
+Это справка для чтения, а НЕ образец формата ответа: не копируй этот вид
+и не выводи такие файлы целиком, если правишь их точечно.
 
 Требования к путям: только относительные пути от корня проекта, исходники
 клади внутрь "{source_root}" по правилам стека. Никаких абсолютных путей.
@@ -1019,14 +1059,70 @@ FILE_BLOCK_RE = re.compile(
     re.DOTALL,
 )
 
+# Точечная правка: блок поиска и замены внутри секции файла. Формат намеренно
+# совпадает с конфликтными маркерами git — модели хорошо его знают.
+PATCH_BLOCK_RE = re.compile(
+    r"<<<<<<<\s*SEARCH\s*\n(?P<search>.*?)\n?=======\s*\n(?P<replace>.*?)\n?>>>>>>>\s*REPLACE",
+    re.DOTALL,
+)
 
-def parse_files(raw: str) -> List[Dict[str, str]]:
-    """Разобрать ответ LLM на список файлов: [{'path': ..., 'content': ...}]."""
-    files = []
-    for match in FILE_BLOCK_RE.finditer(raw):
-        files.append({"path": match.group("path").strip(),
-                      "content": match.group("body").rstrip() + "\n"})
+FILE_SECTION_RE = re.compile(r"###\s*FILE:\s*(?P<path>[^\s`\n]+)[^\n]*\n")
+
+
+def parse_files(raw: str) -> List[Dict]:
+    """Разобрать ответ LLM на операции над файлами.
+
+    Поддерживаются два формата, и они смешиваются в одном ответе:
+
+      full  — `### FILE: путь` + код-блок с ПОЛНЫМ содержимым (новые файлы);
+      patch — `### FILE: путь` + блоки <<<<<<< SEARCH / ======= / >>>>>>> REPLACE
+              (правка существующего файла).
+
+    Точечная правка не только дешевле по токенам: строки, которых нет в патче,
+    физически не проходят через модель, поэтому их нельзя потерять. Именно так
+    в этом проекте пропадали обёртка темы и префиксы имён артефактов.
+    """
+    files: List[Dict] = []
+    sections = list(FILE_SECTION_RE.finditer(raw))
+    for index, match in enumerate(sections):
+        start = match.end()
+        end = sections[index + 1].start() if index + 1 < len(sections) else len(raw)
+        body = raw[start:end]
+        path = match.group("path").strip()
+
+        edits = [(m.group("search"), m.group("replace"))
+                 for m in PATCH_BLOCK_RE.finditer(body)]
+        if edits:
+            files.append({"path": path, "kind": "patch", "edits": edits})
+            continue
+
+        fence = re.search(r"```[^\n]*\n(?P<code>.*?)\n?```", body, re.DOTALL)
+        if fence:
+            files.append({"path": path, "kind": "full",
+                          "content": fence.group("code").rstrip() + "\n"})
     return files
+
+
+def apply_patch(path: Path, edits: List[tuple]) -> str:
+    """Применить блоки поиска-замены к файлу. Ошибка — понятное исключение."""
+    if not path.is_file():
+        raise ValueError("файла нет на диске — для нового файла нужен полный текст")
+    text = path.read_text(encoding="utf-8")
+    for number, (search, replace) in enumerate(edits, start=1):
+        if not search.strip():
+            raise ValueError("блок {}: пустой SEARCH".format(number))
+        count = text.count(search)
+        if count == 0:
+            head = search.strip().splitlines()[0][:70] if search.strip() else ""
+            raise ValueError(
+                "блок {}: фрагмент не найден (первая строка: {!r}). "
+                "SEARCH должен совпадать дословно, включая отступы".format(number, head))
+        if count > 1:
+            raise ValueError(
+                "блок {}: фрагмент встречается {} раз — добавь строк "
+                "контекста, чтобы он стал уникальным".format(number, count))
+        text = text.replace(search, replace, 1)
+    return text
 
 
 def safe_relative_path(raw_path: str) -> Optional[Path]:
@@ -1370,7 +1466,7 @@ def build_files_context(cfg: Dict) -> str:
         if not path.is_file():
             missing.append(rel)
             continue
-        blocks.append("### FILE: {}\n```\n{}\n```".format(
+        blocks.append("--- СОДЕРЖИМОЕ ФАЙЛА {} ---\n```\n{}\n```".format(
             rel, path.read_text(encoding="utf-8").rstrip()))
     for rel in missing:
         warn("dependency_files: {} не найден — пропущен".format(rel))
@@ -1397,14 +1493,28 @@ def split_tasks(tasks_md: str) -> List[str]:
 
 
 def collect_files(raw: str, change_dir: Path) -> List[tuple]:
-    """Разобрать ответ LLM в список (относительный путь, содержимое)."""
+    """Разобрать ответ LLM в список (относительный путь, итоговое содержимое).
+
+    Патчи применяются здесь же: на выход всегда идёт готовый текст файла,
+    поэтому запись, подтверждение и --dry-run работают одинаково для обоих
+    форматов. Не применившийся патч не роняет весь батч — файл пропускается
+    с понятным сообщением, остальные записываются.
+    """
     valid = []
     for item in parse_files(raw):
         rel = safe_relative_path(item["path"])
         if rel is None:
             err("Отклонён небезопасный путь: {}".format(item["path"]))
-        else:
+            continue
+        if item["kind"] == "full":
             valid.append((rel, item["content"]))
+            continue
+        try:
+            valid.append((rel, apply_patch(PROJECT_ROOT / rel, item["edits"])))
+            ok("патч применён: {} ({} правк{})".format(
+                rel, len(item["edits"]), "а" if len(item["edits"]) == 1 else "и"))
+        except ValueError as exc:
+            err("Патч не применён к {}: {}".format(rel, exc))
     return valid
 
 
@@ -1482,7 +1592,7 @@ def generated_context(done: Dict[str, str]) -> str:
 
     if included:
         parts.append("Содержимое (самые свежие файлы):\n{}".format(
-            "\n\n".join("### FILE: {}\n```\n{}\n```".format(p, done[p])
+            "\n\n".join("--- СОДЕРЖИМОЕ ФАЙЛА {} ---\n```\n{}\n```".format(p, done[p])
                         for p in included)))
     skipped = len(paths) - len(included)
     if skipped:
