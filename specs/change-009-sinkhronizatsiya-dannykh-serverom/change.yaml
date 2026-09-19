@@ -42,13 +42,47 @@ prompt: 'Синхронизация данных с сервером. Форма
   Соблюдай конвенции из specs/MAIN.md: тёмная тема и оформление экранов сохраняются,
   слои и пакеты не меняются, сетевые модели только сгенерированные.'
 created: 2026-09-19 16:43
-updated: 2026-09-19 17:01
+updated: 2026-09-19 18:30
 mode: llm
 status:
   proposal: generated
   spec-bdd: generated
   tasks: generated
+  code-generation: generated
 git:
   branch: change/009-sinkhronizatsiya-dannykh-serverom
   worktree: /Users/mikhailbutorin/AndroidStudioProjects/MnemoCards-wt-009
   base_branch: feature/feature-001
+codegen:
+  batch_size: 3
+  task_count: 23
+  done_batches: 8
+  files:
+  - app/src/main/java/com/mnemocards/AppContainer.kt
+  - app/src/main/java/com/mnemocards/MnemoCardsApplication.kt
+  - app/src/main/java/com/mnemocards/data/db/CardDao.kt
+  - app/src/main/java/com/mnemocards/data/db/CardEntity.kt
+  - app/src/main/java/com/mnemocards/data/db/DeckDao.kt
+  - app/src/main/java/com/mnemocards/data/db/DeckEntity.kt
+  - app/src/main/java/com/mnemocards/data/db/Migrations.kt
+  - app/src/main/java/com/mnemocards/data/db/MnemoCardsDatabase.kt
+  - app/src/main/java/com/mnemocards/data/db/sync/AuthTokensEntity.kt
+  - app/src/main/java/com/mnemocards/data/db/sync/LastSyncResultEntity.kt
+  - app/src/main/java/com/mnemocards/data/db/sync/SyncStateDao.kt
+  - app/src/main/java/com/mnemocards/data/db/sync/SyncStateEntity.kt
+  - app/src/main/java/com/mnemocards/data/remote/AuthAuthenticator.kt
+  - app/src/main/java/com/mnemocards/data/sync/SyncApplier.kt
+  - app/src/main/java/com/mnemocards/data/sync/SyncEngine.kt
+  - app/src/main/java/com/mnemocards/data/sync/SyncError.kt
+  - app/src/main/java/com/mnemocards/data/sync/SyncManager.kt
+  - app/src/main/java/com/mnemocards/ui/navigation/AppNavHost.kt
+  - app/src/main/java/com/mnemocards/ui/settings/SettingsScreen.kt
+  - app/src/main/java/com/mnemocards/ui/settings/SettingsViewModel.kt
+  - app/src/test/java/com/mnemocards/data/local/SyncFieldsDaoTest.kt
+  - app/src/test/java/com/mnemocards/data/local/SyncStateDaoTest.kt
+  - app/src/test/java/com/mnemocards/data/remote/AuthRefreshTest.kt
+  - app/src/test/java/com/mnemocards/data/sync/SyncApplierTest.kt
+  - app/src/test/java/com/mnemocards/data/sync/SyncEngineErrorTest.kt
+  - app/src/test/java/com/mnemocards/data/sync/SyncEngineSessionTest.kt
+  - app/src/test/java/com/mnemocards/data/sync/SyncManagerTest.kt
+  - app/src/test/java/com/mnemocards/ui/settings/SettingsViewModelTest.kt

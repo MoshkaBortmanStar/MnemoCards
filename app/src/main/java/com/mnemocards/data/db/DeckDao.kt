@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -20,6 +21,13 @@ interface DeckDao {
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertDeck(deck: DeckEntity)
+
+    /**
+     * Прямая перезапись колоды без пометки локального изменения —
+     * применяется к серверным записям при синхронизации (change-009, S6).
+     */
+    @Update
+    suspend fun updateDeck(deck: DeckEntity)
 
     @Query("SELECT * FROM decks WHERE id = :id AND isDeleted = 0 LIMIT 1")
     suspend fun getDeckById(id: String): DeckEntity?
@@ -110,4 +118,31 @@ interface DeckDao {
         softDeleteCardsByDeckId(id)
         softDeleteDeckById(id)
     }
+
+    // --- Фоновая синхронизация (change-009) ---
+
+    /** Колоды с незавершённой отправкой, включая tombstone (S5). */
+    @Query("SELECT * FROM decks WHERE isChanged = 1")
+    suspend fun getPendingDecks(): List<DeckEntity>
+
+    /** Все колоды без фильтра — полная замена потока при fullSync (S8). */
+    @Query("SELECT * FROM decks")
+    suspend fun getDecksIncludingDeleted(): List<DeckEntity>
+
+    /** Живые колоды — потоки карточек следующей сессии (S3). */
+    @Query("SELECT id FROM decks WHERE isDeleted = 0")
+    suspend fun getAliveDeckIds(): List<String>
+
+    /**
+     * Снимает признак локального изменения, только если счётчик правок
+     * не менялся с момента отправки (S9); правка в полёте сохраняет
+     * признак (S10). Возвращает число изменённых строк.
+     */
+    @Query(
+        """
+        UPDATE decks SET isChanged = 0
+        WHERE id = :id AND revision = :sentRevision
+        """
+    )
+    suspend fun clearPendingIfUnchanged(id: String, sentRevision: Int): Int
 }

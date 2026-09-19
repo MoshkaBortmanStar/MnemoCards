@@ -17,6 +17,7 @@ import com.mnemocards.data.db.MnemoCardsDatabase
 import com.mnemocards.data.file.CsvFileGateway
 import com.mnemocards.data.repository.RoomCardRepository
 import com.mnemocards.data.sync.SyncFlagDataStore
+import com.mnemocards.data.sync.SyncManager
 import com.mnemocards.ui.cardform.CardFormEvent
 import com.mnemocards.ui.cardform.CardFormScreen
 import com.mnemocards.ui.cardform.CardFormViewModel
@@ -66,6 +67,7 @@ fun AppNavHost(
     syncFlagDataStore: SyncFlagDataStore,
     syncSettingsRepository: SyncSettingsRepository,
     syncSettingsStorage: SyncSettingsStorage,
+    syncManager: SyncManager,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -209,7 +211,7 @@ fun AppNavHost(
         // NavHost; состояние переживает смену конфигурации (S23).
         composable(Routes.SYNC_SETTINGS) {
             val viewModel: SyncSettingsViewModel = viewModel {
-                SyncSettingsViewModelFactory(syncSettingsRepository, syncSettingsStorage)
+                SyncSettingsViewModelFactory(syncSettingsRepository, syncSettingsStorage, syncManager)
                     .create(SyncSettingsViewModel::class.java)
             }
             val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -221,6 +223,7 @@ fun AppNavHost(
                 onCheckConnection = viewModel::checkConnection,
                 onLogin = viewModel::login,
                 onLogout = viewModel::logout,
+                onSyncNow = viewModel::onSyncNow,
                 onBack = { navController.popBackStack() },
             )
         }

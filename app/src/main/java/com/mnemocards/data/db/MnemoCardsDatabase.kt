@@ -4,26 +4,35 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.mnemocards.data.db.sync.LastSyncResultEntity
+import com.mnemocards.data.db.sync.SyncStateDao
+import com.mnemocards.data.db.sync.SyncStateEntity
 
 /**
  * Локальная БД (offline-first): Room — single source of truth для UI.
  *
- * version 4 — переход на UUID и поля синхронизации (change-007,
- * миграция MIGRATION_3_4); история версий: v2 — createdAt
- * (MIGRATION_1_2), v3 — параметры SM-2 (MIGRATION_2_3),
- * v4 — UUID + isChanged/revision/isDeleted (MIGRATION_3_4).
+ * version 5 — состояние синхронизации: ревизии потоков и итог последней
+ * сессии (change-009, MIGRATION_4_5); история версий: v2 — createdAt
+ * (MIGRATION_1_2), v3 — параметры SM-2 (MIGRATION_2_3), v4 — UUID +
+ * isChanged/revision/isDeleted (MIGRATION_3_4, change-007).
  *
  * exportSchema = true: JSON схем нужны MigrationTestHelper (S28).
  */
 @Database(
-    entities = [DeckEntity::class, CardEntity::class],
-    version = 4,
+    entities = [
+        DeckEntity::class,
+        CardEntity::class,
+        SyncStateEntity::class,
+        LastSyncResultEntity::class,
+    ],
+    version = 5,
     exportSchema = true,
 )
 abstract class MnemoCardsDatabase : RoomDatabase() {
 
     abstract fun deckDao(): DeckDao
     abstract fun cardDao(): CardDao
+    abstract fun syncStateDao(): SyncStateDao
 
     companion object {
         @Volatile

@@ -10,6 +10,9 @@ import kotlinx.coroutines.launch
 /**
  * Точка входа приложения: инициализирует DI-контейнер и запускает
  * сидинг базовой колоды в фоновой корутине (S1).
+ *
+ * change-009: автозапуск фоновой синхронизации при открытии приложения
+ * (S1); без сохранённых токенов сессия не выполняется (S14).
  */
 class MnemoCardsApplication : Application() {
 
@@ -24,5 +27,6 @@ class MnemoCardsApplication : Application() {
         applicationScope.launch {
             DatabaseSeeder.seedIfEmpty(container.database)
         }
+        container.syncManager.requestSync()
     }
 }

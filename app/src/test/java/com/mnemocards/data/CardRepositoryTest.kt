@@ -264,10 +264,15 @@ class CardRepositoryTest {
             intervalDays: Int,
             dueDate: Long,
         ): Unit = throw boom
+
+        // change-009: синхронизационные методы не нужны этим тестам.
+        override suspend fun getPendingCards(deckId: String): List<CardEntity> = throw boom
+        override suspend fun clearPendingIfUnchanged(id: String, sentRevision: Int): Int = throw boom
     }
 
     private class NoopDeckDao : DeckDao {
         override suspend fun insertDeck(deck: DeckEntity) = Unit
+        override suspend fun updateDeck(deck: DeckEntity) = Unit
         override suspend fun getDeckById(id: String): DeckEntity? = null
         override suspend fun getDeckByName(name: String): DeckEntity? = null
         override suspend fun getDeckByIdIncludingDeleted(id: String): DeckEntity? = null
@@ -279,6 +284,12 @@ class CardRepositoryTest {
         override suspend fun deleteDeckById(id: String) = Unit
         override suspend fun softDeleteDeckById(id: String) = Unit
         override suspend fun softDeleteCardsByDeckId(deckId: String) = Unit
+
+        // change-009: синхронизационные методы не нужны этим тестам.
+        override suspend fun getPendingDecks(): List<DeckEntity> = emptyList()
+        override suspend fun getDecksIncludingDeleted(): List<DeckEntity> = emptyList()
+        override suspend fun getAliveDeckIds(): List<String> = emptyList()
+        override suspend fun clearPendingIfUnchanged(id: String, sentRevision: Int): Int = 0
     }
 
     // S26: insert падает — Error, приложение не падает, записей нет.

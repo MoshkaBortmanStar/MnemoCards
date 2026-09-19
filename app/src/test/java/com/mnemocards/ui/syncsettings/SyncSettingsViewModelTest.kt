@@ -1,6 +1,9 @@
 package com.mnemocards.ui.syncsettings
 
+import com.mnemocards.data.db.sync.LastSyncResultEntity
 import com.mnemocards.data.network.SyncApi
+import com.mnemocards.data.sync.SyncSession
+import com.mnemocards.data.sync.SyncStatus
 import com.mnemocards.data.syncsettings.SyncSettingsRepository
 import com.mnemocards.data.syncsettings.SyncSettingsStorage
 import com.mnemocards.data.syncsettings.TokenPair
@@ -10,6 +13,10 @@ import com.mnemocards.domain.model.LoginOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -104,6 +111,42 @@ class SyncSettingsViewModelTest {
             """{"error":{"code":"INTERNAL_ERROR","message":"$message"}}"""
                 .toResponseBody("application/json".toMediaType()),
         )
+
+        // change-009: методы потоковой синхронизации экрану настроек
+        // не нужны — заглушки для компиляции интерфейса.
+        override suspend fun refresh(
+            url: String,
+            body: com.mnemocards.data.network.dto.models.RefreshRequest,
+        ): Response<com.mnemocards.data.network.dto.models.TokenPair> =
+            errorNotImplemented()
+
+        override suspend fun syncDecks(
+            url: String,
+            authorization: String,
+            body: com.mnemocards.data.network.dto.models.SyncDecksRequest,
+        ): Response<com.mnemocards.data.network.dto.models.SyncDecksResponse> =
+            errorNotImplemented()
+
+        override suspend fun syncCards(
+            url: String,
+            authorization: String,
+            body: com.mnemocards.data.network.dto.models.SyncCardsRequest,
+        ): Response<com.mnemocards.data.network.dto.models.SyncCardsResponse> =
+            errorNotImplemented()
+
+        private fun <T> errorNotImplemented(): Response<T> =
+            throw NotImplementedError("not used in this test")
+    }
+
+    /** Фейковая сессия синхронизации (change-009): статус и вызовы запуска. */
+    private class FakeSyncSession : SyncSession {
+        val statusFlow = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
+        override val status: StateFlow<SyncStatus> = statusFlow.asStateFlow()
+        override val lastResult: Flow<LastSyncResultEntity?> = MutableStateFlow(null)
+        var syncNowCount = 0
+        override fun requestSync() {
+            syncNowCount++
+        }
     }
 
     /** Фейковое хранилище токенов: фиксирует сохранения и удаления. */
@@ -146,6 +189,7 @@ class SyncSettingsViewModelTest {
     private lateinit var tokenStorage: FakeTokenStorage
     private lateinit var settingsStorage: FakeSettingsStorage
     private lateinit var repository: SyncSettingsRepository
+    private lateinit var syncSession: FakeSyncSession
     private lateinit var viewModel: SyncSettingsViewModel
 
     @Before
@@ -155,6 +199,7 @@ class SyncSettingsViewModelTest {
         tokenStorage = FakeTokenStorage()
         settingsStorage = FakeSettingsStorage(tokenStorage)
         repository = SyncSettingsRepository(api, settingsStorage, tokenStorage)
+        syncSession = FakeSyncSession()
     }
 
     @After
@@ -163,7 +208,7 @@ class SyncSettingsViewModelTest {
     }
 
     private fun createViewModel(): SyncSettingsViewModel {
-        viewModel = SyncSettingsViewModel(repository, settingsStorage)
+        viewModel = SyncSettingsViewModel(repository, settingsStorage, syncSession)
         return viewModel
     }
 
@@ -399,5 +444,33 @@ class SyncSettingsViewModelTest {
         assertNull(vm.uiState.value.addressError)
         assertTrue(api.checkCalls.isEmpty())
         assertTrue(api.loginCalls.isEmpty())
+    }
+
+    // --- change-009: статус фоновой синхронизации (S2, S13, S23) ---
+
+    @Test
+    fun `sync status changes propagate to ui state`() = runTest(dispatcher) {
+        val vm = createViewModel()
+        advanceUntilIdle()
+        assertEquals(SyncStatus.Idle, vm.uiState.value.syncStatus)
+
+        syncSession.statusFlow.value = SyncStatus.Running
+        advanceUntilIdle()
+        assertEquals(SyncStatus.Running, vm.uiState.value.syncStatus)
+
+        syncSession.statusFlow.value = SyncStatus.RequiresLogin
+        advanceUntilIdle()
+        assertEquals(SyncStatus.RequiresLogin, vm.uiState.value.syncStatus)
+    }
+
+    @Test
+    fun `sync now delegates to session and repeats are allowed`() = runTest(dispatcher) {
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.onSyncNow()
+        vm.onSyncNow() // S23: повтор при выполнении — решение за менеджером
+
+        assertEquals(2, syncSession.syncNowCount)
     }
 }

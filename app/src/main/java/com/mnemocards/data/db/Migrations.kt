@@ -142,4 +142,38 @@ val MIGRATION_3_4 = object : Migration(3, 4) {
     }
 }
 
-val ALL_MIGRATIONS = arrayOf<Migration>(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+/**
+ * v4 -> v5 (change-009): состояние фоновой синхронизации — ревизии
+ * потоков и итог последней сессии. Только новые таблицы, существующие
+ * данные не затрагиваются; синх-поля записей (isChanged/revision/
+ * isDeleted) существуют с v4 (change-007) и переиспользуются.
+ *
+ * Токены в Room не переносятся: они хранятся зашифрованными в
+ * TokenStorage (change-008, S16), дублирование открытым текстом
+ * недопустимо.
+ */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `sync_states` (" +
+                "`streamKey` TEXT NOT NULL, " +
+                "`revision` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`streamKey`))",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `last_sync_result` (" +
+                "`id` INTEGER NOT NULL, " +
+                "`finishedAtMillis` INTEGER NOT NULL, " +
+                "`status` TEXT NOT NULL, " +
+                "`errorMessage` TEXT, " +
+                "PRIMARY KEY(`id`))",
+        )
+    }
+}
+
+val ALL_MIGRATIONS = arrayOf<Migration>(
+    MIGRATION_1_2,
+    MIGRATION_2_3,
+    MIGRATION_3_4,
+    MIGRATION_4_5,
+)

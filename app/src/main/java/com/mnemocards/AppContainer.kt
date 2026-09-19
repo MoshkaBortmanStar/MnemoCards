@@ -8,7 +8,10 @@ import com.mnemocards.data.db.MnemoCardsDatabase
 import com.mnemocards.data.file.CsvFileGateway
 import com.mnemocards.data.file.SafCsvFileGateway
 import com.mnemocards.data.network.SyncApi
+import com.mnemocards.data.sync.SessionRunner
+import com.mnemocards.data.sync.SyncEngine
 import com.mnemocards.data.sync.SyncFlagDataStore
+import com.mnemocards.data.sync.SyncManager
 import com.mnemocards.data.syncsettings.DefaultSyncSettingsStorage
 import com.mnemocards.data.syncsettings.DataStoreKeyValueStore
 import com.mnemocards.data.syncsettings.EncryptedTokenStorage
@@ -17,6 +20,9 @@ import com.mnemocards.data.syncsettings.SyncSettingsRepository
 import com.mnemocards.data.syncsettings.SyncSettingsStorage
 import com.mnemocards.data.syncsettings.TokenStorage
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -107,6 +113,28 @@ class AppContainer(context: Context) {
 
     val syncSettingsRepository: SyncSettingsRepository =
         SyncSettingsRepository(syncApi, syncSettingsStorage, tokenStorage)
+
+    /** Application-scope корутины: сессии синхронизации переживают Activity. */
+    private val applicationScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Фоновая синхронизация (change-009): движок сессии + single-flight
+     * менеджер; токены и адрес сервера — из хранилищ change-008.
+     */
+    val syncManager: SyncManager = SyncManager(
+        runner = SessionRunner {
+            SyncEngine(
+                db = database,
+                api = syncApi,
+                tokenStorage = tokenStorage,
+                serverAddress = { syncSettingsStorage.serverAddress() },
+            ).syncNow()
+        },
+        db = database,
+        isConfigured = { tokenStorage.tokens() != null },
+        scope = applicationScope,
+    )
 
     private companion object {
         private val Context.clientSettingsDataStore: DataStore<Preferences> by preferencesDataStore(

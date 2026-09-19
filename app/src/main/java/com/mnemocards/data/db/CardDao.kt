@@ -139,4 +139,22 @@ interface CardDao {
         intervalDays: Int,
         dueDate: Long,
     )
+
+    // --- Фоновая синхронизация (change-009) ---
+
+    /** Карточки колоды с незавершённой отправкой, включая tombstone (S5). */
+    @Query("SELECT * FROM cards WHERE deckId = :deckId AND isChanged = 1")
+    suspend fun getPendingCards(deckId: String): List<CardEntity>
+
+    /**
+     * Снимает признак локального изменения при совпадении счётчика правок
+     * со снапшотом отправки (S9, S10). Возвращает число изменённых строк.
+     */
+    @Query(
+        """
+        UPDATE cards SET isChanged = 0
+        WHERE id = :id AND revision = :sentRevision
+        """
+    )
+    suspend fun clearPendingIfUnchanged(id: String, sentRevision: Int): Int
 }

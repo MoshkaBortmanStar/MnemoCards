@@ -35,6 +35,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mnemocards.MnemoCardsApplication
+import com.mnemocards.data.db.sync.LastSyncResultEntity
+import com.mnemocards.data.sync.SyncStatus
+import java.text.DateFormat
+import java.util.Date
 
 /**
  * Экран настроек синхронизации (S1): поля «Адрес сервера», «Логин»,
@@ -55,6 +59,7 @@ fun SyncSettingsScreen(
     onCheckConnection: () -> Unit,
     onLogin: () -> Unit,
     onLogout: () -> Unit,
+    onSyncNow: () -> Unit,
     onBack: () -> Unit,
 ) {
     Scaffold(
@@ -130,6 +135,13 @@ fun SyncSettingsScreen(
             )
 
             if (state.isConnected) {
+                // change-009: статус и итог фоновой синхронизации —
+                // только здесь, не на экранах колод (S21, S2, S13).
+                SyncStatusSection(
+                    status = state.syncStatus,
+                    lastSync = state.lastSync,
+                    onSyncNow = onSyncNow,
+                )
                 OutlinedButton(
                     onClick = onLogout,
                     enabled = !state.isChecking && !state.isLoggingIn,
@@ -195,5 +207,74 @@ fun SyncSettingsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {}
         }
+    }
+}
+
+/**
+ * Секция фоновой синхронизации (change-009): кнопка «Синхронизировать
+ * сейчас», статус текущей сессии, время и ошибка последней (S2, S13).
+ * Repeat-нажатие при выполнении не создаёт вторую сессию (S23).
+ */
+@Composable
+private fun SyncStatusSection(
+    status: SyncStatus,
+    lastSync: LastSyncResultEntity?,
+    onSyncNow: () -> Unit,
+) {
+    Text(
+        text = "Синхронизация",
+        style = MaterialTheme.typography.titleMedium,
+    )
+    Button(
+        onClick = onSyncNow,
+        enabled = status !is SyncStatus.Running,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        if (status is SyncStatus.Running) {
+            CircularProgressIndicator(
+                modifier = Modifier
+                    .width(20.dp)
+                    .height(20.dp),
+                strokeWidth = 2.dp,
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+        Text("Синхронизировать сейчас")
+    }
+    val statusText = when (status) {
+        SyncStatus.Running -> "Выполняется"
+        SyncStatus.Success -> "Успешно"
+        SyncStatus.RequiresLogin -> "Требуется вход"
+        is SyncStatus.Error -> "Ошибка: ${status.error.message}"
+        SyncStatus.Idle -> lastSync?.let { "Завершена ранее" } ?: "Ещё не выполнялась"
+    }
+    Text(
+        text = statusText,
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (status is SyncStatus.Error || status is SyncStatus.RequiresLogin) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+    )
+    // Итог последней сессии: время и текст ошибки (S2, S15).
+    lastSync?.let { last ->
+        val time = DateFormat.getDateTimeInstance().format(Date(last.finishedAtMillis))
+        Text(
+            text = buildString {
+                append("Последняя синхронизация: ")
+                append(
+                    when (last.status) {
+                        LastSyncResultEntity.STATUS_SUCCESS -> "успешна"
+                        LastSyncResultEntity.STATUS_REQUIRES_LOGIN -> "требуется вход"
+                        else -> "с ошибкой"
+                    },
+                )
+                append(" — ").append(time)
+                last.errorMessage?.let { append("\n").append(it) }
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

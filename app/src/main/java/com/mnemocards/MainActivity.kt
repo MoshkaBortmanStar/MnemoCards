@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
                     syncFlagDataStore = container.syncFlagDataStore,
                     syncSettingsRepository = container.syncSettingsRepository,
                     syncSettingsStorage = container.syncSettingsStorage,
+                    syncManager = container.syncManager,
                 )
             }
         }

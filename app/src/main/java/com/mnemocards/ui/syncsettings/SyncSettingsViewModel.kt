@@ -3,6 +3,7 @@ package com.mnemocards.ui.syncsettings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.mnemocards.data.sync.SyncSession
 import com.mnemocards.data.syncsettings.SyncSettingsRepository
 import com.mnemocards.data.syncsettings.SyncSettingsStorage
 import com.mnemocards.domain.model.ConnectionCheckResult
@@ -25,6 +26,7 @@ import java.net.URISyntaxException
 class SyncSettingsViewModel(
     private val repository: SyncSettingsRepository,
     private val storage: SyncSettingsStorage,
+    private val syncSession: SyncSession,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SyncSettingsUiState())
@@ -40,6 +42,25 @@ class SyncSettingsViewModel(
                 it.copy(address = address, isConnected = connected)
             }
         }
+        // change-009: статус сессии (S2, S23) и итог последней (S2, S13).
+        viewModelScope.launch {
+            syncSession.status.collect { status ->
+                _uiState.update { it.copy(syncStatus = status) }
+            }
+        }
+        viewModelScope.launch {
+            syncSession.lastResult.collect { last ->
+                _uiState.update { it.copy(lastSync = last) }
+            }
+        }
+    }
+
+    /**
+     * «Синхронизировать сейчас» (S2): повторное нажатие при выполняющейся
+     * сессии не создаёт параллельную — single-flight в [SyncManager] (S23).
+     */
+    fun onSyncNow() {
+        syncSession.requestSync()
     }
 
     fun onAddressChanged(value: String) {
@@ -193,11 +214,12 @@ class SyncSettingsViewModel(
 class SyncSettingsViewModelFactory(
     private val repository: SyncSettingsRepository,
     private val storage: SyncSettingsStorage,
+    private val syncSession: SyncSession,
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass == SyncSettingsViewModel::class.java)
-        return SyncSettingsViewModel(repository, storage) as T
+        return SyncSettingsViewModel(repository, storage, syncSession) as T
     }
 }
