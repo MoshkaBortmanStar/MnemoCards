@@ -1479,6 +1479,80 @@ def build_files_context(cfg: Dict) -> str:
             + "\n\n".join(blocks))
 
 
+# Пути файлов, упомянутые в задаче: план перечисляет их строкой
+# "Файлы: `путь`, `путь`". Это и есть список того, что батч будет трогать.
+TASK_PATH_RE = re.compile(r"`([A-Za-z0-9_][\w./-]*\.[A-Za-z0-9]+)`")
+
+TOUCHED_CHAR_BUDGET = 60000
+
+
+def resolve_by_name(name: str) -> Optional[Path]:
+    """Найти файл по имени в корнях исходников. Только однозначное совпадение."""
+    matches = []
+    for root in ("app/src", "src"):
+        base = PROJECT_ROOT / root
+        if not base.is_dir():
+            continue
+        for candidate in base.rglob(name):
+            if candidate.is_file() and not (SKIP_DIRS & set(candidate.parts)):
+                matches.append(candidate)
+    return matches[0] if len(matches) == 1 else None
+
+
+
+def touched_files_context(batch: List[str]) -> str:
+    """Содержимое существующих файлов, которые батч собирается править.
+
+    Без этого модель видит только карту путей и объявлений, а содержимое
+    вынуждена выдумывать: так в change-009 она переписала сущности с UUID
+    обратно на автоинкремент и переименовала поля. Для точечных правок
+    содержимое обязательно — блок SEARCH должен совпасть дословно.
+    """
+    seen, blocks, used, skipped = set(), [], 0, []
+    for block in batch:
+        for raw_path in TASK_PATH_RE.findall(block):
+            if raw_path in seen:
+                continue
+            seen.add(raw_path)
+            rel = safe_relative_path(raw_path)
+            if rel is None:
+                continue
+            path = PROJECT_ROOT / rel
+            if not path.is_file():
+                # План пишется без карты проекта, поэтому пути в задачах часто
+                # угаданы (data/local/ вместо data/db/). Ищем по имени файла:
+                # берём, только если совпадение единственное.
+                path = resolve_by_name(rel.name)
+                if path is None:
+                    continue
+                raw_path = str(path.relative_to(PROJECT_ROOT))
+            if path.suffix not in CODE_SUFFIXES:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except Exception:  # noqa: BLE001
+                continue
+            if used + len(text) > TOUCHED_CHAR_BUDGET:
+                skipped.append(raw_path)
+                continue
+            used += len(text)
+            blocks.append("--- СОДЕРЖИМОЕ ФАЙЛА {} ---\n```\n{}\n```".format(
+                raw_path, text.rstrip()))
+
+    if not blocks:
+        return ""
+    info("Файлы задач в контексте: {}{}".format(
+        len(blocks), ", не влезло {}".format(len(skipped)) if skipped else ""))
+    tail = ""
+    if skipped:
+        tail = ("\n\nНе поместились (запроси полное содержимое, если нужно "
+                "их править): " + ", ".join(skipped))
+    return ("ФАЙЛЫ, КОТОРЫЕ ТРОГАЮТ ЗАДАЧИ ЭТОГО ШАГА — актуальное содержимое "
+            "с диска.\nПравь их блоками SEARCH/REPLACE, копируя фрагменты "
+            "отсюда ДОСЛОВНО.\nНе выдумывай содержимое: то, чего здесь нет, "
+            "ты не видел.\n\n" + "\n\n".join(blocks) + tail)
+
+
 TASK_MARKER_RE = re.compile(r"^-\s*\[[^\]]*\]\s*\*\*T\d+", re.MULTILINE)
 
 
@@ -1694,6 +1768,9 @@ def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
         parts.append(plan_outline)
         parts.append("Задачи ЭТОГО шага — реализуй только их:\n---\n{}\n---"
                      .format("\n\n".join(batch)))
+        touched = touched_files_context(batch)
+        if touched:
+            parts.append(touched)
         if done:
             parts.append(generated_context(done))
 
