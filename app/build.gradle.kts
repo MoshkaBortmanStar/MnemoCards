@@ -35,10 +35,16 @@ android {
     }
     buildFeatures {
         compose = true
+        // BuildConfig.DEBUG — признак debug-сборки для локальных http-адресов
+        // (см. SyncSettingsViewModel.validateAddress).
+        buildConfig = true
     }
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            // android.util.Log в main-коде (SyncSettingsRepository) становится
+            // no-op в JVM-тестах вместо "not mocked" исключения.
+            isReturnDefaultValues = true
         }
     }
     sourceSets {

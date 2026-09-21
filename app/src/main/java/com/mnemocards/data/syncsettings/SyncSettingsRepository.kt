@@ -1,5 +1,6 @@
 package com.mnemocards.data.syncsettings
 
+import android.util.Log
 import com.mnemocards.data.network.SyncApi
 import com.mnemocards.data.network.dto.models.ErrorResponse
 import com.mnemocards.data.network.dto.models.LoginRequest
@@ -31,6 +32,10 @@ class SyncSettingsRepository(
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    private companion object {
+        const val TAG = "SyncCheck"
+    }
+
     /** Нормализует адрес: без хвостового слэша. */
     private fun normalize(address: String): String = address.trim().trimEnd('/')
 
@@ -53,8 +58,10 @@ class SyncSettingsRepository(
         } catch (e: SSLException) {
             // Самоподписанный/просроченный сертификат — обход проверки
             // сертификата не выполняется (S7).
+            Log.w(TAG, "health: сертификат отклонён", e)
             ConnectionCheckResult.CertificateRejected
         } catch (e: IOException) {
+            Log.w(TAG, "health: сеть недоступна", e)
             ConnectionCheckResult.Unreachable
         }
     }
@@ -96,8 +103,10 @@ class SyncSettingsRepository(
                 else -> LoginOutcome.ServerError
             }
         } catch (e: SSLException) {
+            Log.w(TAG, "login: сертификат отклонён", e)
             LoginOutcome.NetworkError
         } catch (e: IOException) {
+            Log.w(TAG, "login: сеть недоступна", e)
             LoginOutcome.NetworkError
         } catch (e: SerializationException) {
             LoginOutcome.ServerError

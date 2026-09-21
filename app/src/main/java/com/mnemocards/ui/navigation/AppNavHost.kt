@@ -11,6 +11,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.mnemocards.BuildConfig
 import com.mnemocards.data.RoomDeckCountsRepository
 import com.mnemocards.data.RoomDeckRepository
 import com.mnemocards.data.db.MnemoCardsDatabase
@@ -211,7 +212,14 @@ fun AppNavHost(
         // NavHost; состояние переживает смену конфигурации (S23).
         composable(Routes.SYNC_SETTINGS) {
             val viewModel: SyncSettingsViewModel = viewModel {
-                SyncSettingsViewModelFactory(syncSettingsRepository, syncSettingsStorage, syncManager)
+                SyncSettingsViewModelFactory(
+                    syncSettingsRepository,
+                    syncSettingsStorage,
+                    syncManager,
+                    // debug-сборка разрешает plain http (локальная отладка);
+                    // release по контракту — только HTTPS.
+                    allowHttp = BuildConfig.DEBUG,
+                )
                     .create(SyncSettingsViewModel::class.java)
             }
             val state by viewModel.uiState.collectAsStateWithLifecycle()

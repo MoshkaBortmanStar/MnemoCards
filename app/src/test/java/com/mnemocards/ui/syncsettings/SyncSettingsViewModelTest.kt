@@ -207,8 +207,8 @@ class SyncSettingsViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun createViewModel(): SyncSettingsViewModel {
-        viewModel = SyncSettingsViewModel(repository, settingsStorage, syncSession)
+    private fun createViewModel(allowHttp: Boolean = true): SyncSettingsViewModel {
+        viewModel = SyncSettingsViewModel(repository, settingsStorage, syncSession, allowHttp)
         return viewModel
     }
 
@@ -243,16 +243,33 @@ class SyncSettingsViewModelTest {
         assertFalse(vm.uiState.value.isConnected)
     }
 
-    // (3) http-адрес: cleartext-ошибка до отправки запроса, флаг в манифесте
-    // не включается, состояние подключения не меняется (S25).
+    // (3) http-адрес при allowHttp=true (debug-сборка): валиден и уходит
+    // в сеть — debug это инструмент разработчика.
     @Test
-    fun `http address is rejected before any request`() = runTest(dispatcher) {
-        val vm = createViewModel()
+    fun `http address is allowed in debug and goes to network`() = runTest(dispatcher) {
+        val vm = createViewModel(allowHttp = true)
+        advanceUntilIdle()
+
+        vm.onAddressChanged("http://sync.example.com")
+        vm.checkConnection()
+        advanceUntilIdle()
+
+        assertEquals(null, vm.uiState.value.addressError)
+        assertEquals("Сервер отвечает", vm.uiState.value.resultText)
+        assertEquals(1, api.checkCalls.size)
+    }
+
+    // (3a) http-адрес при allowHttp=false (release-сборка): блокируется
+    // до любого сетевого вызова сообщением про незашифрованное соединение.
+    @Test
+    fun `http address is rejected when allowHttp is false`() = runTest(dispatcher) {
+        val vm = createViewModel(allowHttp = false)
         advanceUntilIdle()
 
         vm.onAddressChanged("http://sync.example.com")
         vm.checkConnection()
         vm.login()
+        advanceUntilIdle()
 
         assertEquals(
             "Незашифрованное соединение (http) заблокировано Android — используйте https-адрес",

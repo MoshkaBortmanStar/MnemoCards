@@ -27,6 +27,11 @@ class SyncSettingsViewModel(
     private val repository: SyncSettingsRepository,
     private val storage: SyncSettingsStorage,
     private val syncSession: SyncSession,
+    // Разрешён ли plain http в поле адреса. Прокладывается из AppNavHost
+    // как BuildConfig.DEBUG: debug-сборка — инструмент разработчика,
+    // release по контракту — только HTTPS. Инъекция вместо прямого
+    // BuildConfig делает оба поведения тестируемыми.
+    private val allowHttp: Boolean = false,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SyncSettingsUiState())
@@ -90,7 +95,12 @@ class SyncSettingsViewModel(
             return "Некорректный адрес"
         }
         if (uri.scheme.equals("http", ignoreCase = true)) {
-            return "Незашифрованное соединение (http) заблокировано Android — используйте https-адрес"
+            // allowHttp=true только в debug-сборках (см. конструктор).
+            if (!allowHttp) {
+                return "Незашифрованное соединение (http) заблокировано Android — используйте https-адрес"
+            }
+            // http разрешён политикой — валидно, схема https ниже не требуется.
+            return null
         }
         if (!uri.scheme.equals("https", ignoreCase = true)) {
             return "Некорректный адрес"
@@ -215,11 +225,12 @@ class SyncSettingsViewModelFactory(
     private val repository: SyncSettingsRepository,
     private val storage: SyncSettingsStorage,
     private val syncSession: SyncSession,
+    private val allowHttp: Boolean = false,
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass == SyncSettingsViewModel::class.java)
-        return SyncSettingsViewModel(repository, storage, syncSession) as T
+        return SyncSettingsViewModel(repository, storage, syncSession, allowHttp) as T
     }
 }
