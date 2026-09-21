@@ -88,6 +88,16 @@ class AppNavHostTest {
                     ),
                     syncSettingsRepository = syncSettingsRepository,
                     syncSettingsStorage = syncSettingsStorage,
+                    // Навигационный тест синхронизацию не выполняет:
+                    // runner-заглушка и isConfigured = false.
+                    syncManager = com.mnemocards.data.sync.SyncManager(
+                        runner = com.mnemocards.data.sync.SessionRunner { null },
+                        db = db,
+                        isConfigured = { false },
+                        scope = kotlinx.coroutines.CoroutineScope(
+                            kotlinx.coroutines.Dispatchers.Main.immediate,
+                        ),
+                    ),
                 )
             }
         }
