@@ -58,6 +58,6 @@ artifacts:
   - id: code-generation
     requires: [tasks, spec-bdd]
     description: >-
-      Исполнение задач и генерация целевого Java/Spring Boot кода.
-      Файлы записываются в исходники проекта, сырой ответ LLM
-      сохраняется в specs/{change_id}/codegen-output.md.
+      Исполнение задач и генерация целевого кода проекта.
+      Файлы записываются в исходники; сырой ответ LLM на диск
+      не сохраняется.

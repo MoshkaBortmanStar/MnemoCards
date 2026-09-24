@@ -1613,17 +1613,38 @@ def confirm_write(args: argparse.Namespace) -> bool:
     return False
 
 
+RAW_TAIL_CHARS = 1500
+
+
+def show_raw_tail(raw: str) -> None:
+    """
+    Хвост сырого ответа модели в терминал — диагностика разбора.
+
+    Раньше весь ответ складывался в specs/<id>/codegen-output.md, но файл
+    рос на ~150 КБ за изменение, попадал в коммит и никем не читался:
+    ни движок, ни промпты его не используют. Для разбора «почему не
+    распарсилось» хватает конца ответа — там видно и обрыв на середине
+    (кончились max_tokens), и ответ не в том формате.
+    """
+    print()
+    if not raw.strip():
+        warn("Ответ модели пуст — до содержательной части она не дошла.")
+        return
+    warn("Последние {} символов ответа модели:".format(RAW_TAIL_CHARS))
+    print("  " + "\n  ".join(raw[-RAW_TAIL_CHARS:].splitlines()))
+    print()
+
+
 def codegen_single(change_dir: Path, settings: "LLMSettings", system: str,
                    user: str, args: argparse.Namespace) -> Optional[List[tuple]]:
     """Кодогенерация одним запросом (историческое поведение)."""
     info("Генерирую (файлы появятся ниже по мере готовности)...")
     raw = llm_chat(settings, system, user, progress=True)
-    (change_dir / "codegen-output.md").write_text(raw, encoding="utf-8")
 
     valid = collect_files(raw, change_dir)
     if not valid:
-        fail("LLM не вернул ни одного блока '### FILE:'. "
-             "Сырой ответ: specs/{}/codegen-output.md".format(change_dir.name))
+        show_raw_tail(raw)
+        fail("LLM не вернул ни одного блока '### FILE:'.")
 
     print()
     info("Файлы к записи ({}):".format(len(valid)))
@@ -1754,8 +1775,6 @@ def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
     if not args.dry_run and not confirm_write(args):
         return None
 
-    raw_log: List[str] = []
-
     for index, batch in enumerate(batches, start=1):
         if index <= start_index:
             continue
@@ -1775,16 +1794,14 @@ def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
             parts.append(generated_context(done))
 
         raw = llm_chat(settings, system, "\n\n".join(parts), progress=True)
-        raw_log.append("## Батч {}/{}\n\n{}".format(index, len(batches), raw))
 
         valid = collect_files(raw, change_dir)
         if not valid:
             # Дальше идти нельзя: следующие батчи опираются на код этого.
             # Прогресс остался на предыдущем батче — повторный запуск
             # продолжит именно отсюда, а не проскочит дырку.
-            (change_dir / "codegen-output.md").write_text(
-                "\n\n---\n\n".join(raw_log), encoding="utf-8")
             err("Батч {} не вернул ни одного файла.".format(index))
+            show_raw_tail(raw)
             print()
             info("Частая причина: модель израсходовала max_tokens на "
                  "размышления и не дошла до ответа.")
@@ -1794,8 +1811,7 @@ def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
             print()
             info("Прогресс сохранён на батче {}. Повторный запуск "
                  "продолжит с батча {}.".format(index - 1, index))
-            fail("Кодогенерация остановлена. Сырой ответ: "
-                 "specs/{}/codegen-output.md".format(change_dir.name))
+            fail("Кодогенерация остановлена.")
 
         for rel, content in valid:
             done[str(rel)] = content   # строкой: путь уходит в change.yaml
@@ -1812,12 +1828,8 @@ def codegen_batched(change_dir: Path, settings: "LLMSettings", system: str,
             save_codegen_progress(change_dir, batch_size, len(task_blocks),
                                   index, sorted(done))
 
-    (change_dir / "codegen-output.md").write_text(
-        "\n\n---\n\n".join(raw_log), encoding="utf-8")
-
     if not done:
-        fail("Ни один батч не вернул файлов. "
-             "Сырой ответ: specs/{}/codegen-output.md".format(change_dir.name))
+        fail("Ни один батч не вернул файлов.")
 
     print()
     info("Всего файлов: {}".format(len(done)))
