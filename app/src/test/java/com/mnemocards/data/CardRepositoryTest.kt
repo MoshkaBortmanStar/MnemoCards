@@ -267,6 +267,7 @@ class CardRepositoryTest {
 
         // change-009: синхронизационные методы не нужны этим тестам.
         override suspend fun getPendingCards(deckId: String): List<CardEntity> = throw boom
+        override suspend fun markAllCardsChanged() = throw boom
         override suspend fun clearPendingIfUnchanged(id: String, sentRevision: Int): Int = throw boom
     }
 
@@ -288,6 +289,7 @@ class CardRepositoryTest {
         // change-009: синхронизационные методы не нужны этим тестам.
         override suspend fun getPendingDecks(): List<DeckEntity> = emptyList()
         override suspend fun getDecksIncludingDeleted(): List<DeckEntity> = emptyList()
+        override suspend fun markAllDecksChanged() = Unit
         override suspend fun getAliveDeckIds(): List<String> = emptyList()
         override suspend fun clearPendingIfUnchanged(id: String, sentRevision: Int): Int = 0
     }

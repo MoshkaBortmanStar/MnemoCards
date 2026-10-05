@@ -112,7 +112,20 @@ class AppContainer(context: Context) {
         .create(SyncApi::class.java)
 
     val syncSettingsRepository: SyncSettingsRepository =
-        SyncSettingsRepository(syncApi, syncSettingsStorage, tokenStorage)
+        SyncSettingsRepository(
+            syncApi,
+            syncSettingsStorage,
+            tokenStorage,
+            onServerChanged = {
+                // Подключились к другому серверу: его нумерация ревизий не
+                // связана с прежней, и о локальных записях он не знает.
+                // Обнуляем ревизии и помечаем всё к отправке, иначе первая
+                // же синхронизация сотрёт локальные данные.
+                database.syncStateDao().clearRevisions()
+                database.deckDao().markAllDecksChanged()
+                database.cardDao().markAllCardsChanged()
+            },
+        )
 
     /** Application-scope корутины: сессии синхронизации переживают Activity. */
     private val applicationScope =

@@ -25,6 +25,16 @@ interface SyncStateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveRevision(state: SyncStateEntity)
 
+    /**
+     * Сброс ревизий всех потоков. Нужен при смене сервера: ревизии выданы
+     * ПРЕЖНИМ сервером и для нового ничего не значат. Без сброса клиент
+     * просит `since` из чужой нумерации и получает fullSync с пустым
+     * срезом — локальные записи при этом удалялись бы как «отсутствующие
+     * на сервере».
+     */
+    @Query("DELETE FROM sync_states")
+    suspend fun clearRevisions()
+
     @Query("SELECT * FROM sync_states")
     suspend fun getAllSyncStates(): List<SyncStateEntity>
 

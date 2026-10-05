@@ -129,6 +129,15 @@ interface DeckDao {
     @Query("SELECT * FROM decks")
     suspend fun getDecksIncludingDeleted(): List<DeckEntity>
 
+    /**
+     * Пометить все колоды как требующие отправки. Нужно при подключении
+     * к ДРУГОМУ серверу: он о них не знает, и без пометки они не попадут
+     * в changes — клиент отправит пустой список, получит пустой срез
+     * и сочтёт колоды удалёнными.
+     */
+    @Query("UPDATE decks SET isChanged = 1")
+    suspend fun markAllDecksChanged()
+
     /** Живые колоды — потоки карточек следующей сессии (S3). */
     @Query("SELECT id FROM decks WHERE isDeleted = 0")
     suspend fun getAliveDeckIds(): List<String>

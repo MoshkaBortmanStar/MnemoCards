@@ -50,6 +50,7 @@ class SyncApplier(
         fullSync: Boolean,
         revision: Long,
         snapshot: Map<String, Int> = emptyMap(),
+        since: Long = 0,
     ) {
         val deckDao = db.deckDao()
         db.withTransaction {
@@ -79,7 +80,7 @@ class SyncApplier(
                     else -> Unit
                 }
             }
-            if (fullSync) {
+            if (fullSync && !revisionWentBackwards(revision, since)) {
                 // S8: полный срез — локальные записи вне ответа удаляются,
                 // кроме изменённых после снапшота отправки.
                 for (local in deckDao.getDecksIncludingDeleted()) {
@@ -104,6 +105,7 @@ class SyncApplier(
         fullSync: Boolean,
         revision: Long,
         snapshot: Map<String, Int> = emptyMap(),
+        since: Long = 0,
     ) {
         val cardDao = db.cardDao()
         db.withTransaction {
@@ -126,7 +128,7 @@ class SyncApplier(
                     else -> Unit // S25, S10
                 }
             }
-            if (fullSync) {
+            if (fullSync && !revisionWentBackwards(revision, since)) {
                 for (local in cardDao.getCardsByDeckIncludingDeleted(deckId)) {
                     if (local.id !in aliveIds && !isProtectedByRevision(local.id, local.revision, snapshot)) {
                         cardDao.deleteCard(local.id)
@@ -173,6 +175,21 @@ class SyncApplier(
             }
         }
     }
+
+    /**
+     * Ревизия сервера оказалась МЕНЬШЕ той, что мы у него запрашивали.
+     *
+     * Так не бывает у сервера, который помнит нашу историю: ревизия только
+     * растёт. Значит перед нами либо другой сервер, либо тот же с потерянной
+     * базой. В обоих случаях его пустой срез — не свидетельство удаления, и
+     * применять fullSync разрушительно: локальные записи, о которых сервер
+     * никогда не знал, были бы стёрты.
+     *
+     * Записи остаются; отправит их наверх сброс состояния при смене сервера
+     * (SyncSettingsRepository.onServerChanged) либо следующая правка.
+     */
+    private fun revisionWentBackwards(serverRevision: Long, since: Long): Boolean =
+        since > 0 && serverRevision < since
 
     /** Изменена после снапшота отправки — локальная правка важнее сервера. */
     private fun isProtectedByRevision(

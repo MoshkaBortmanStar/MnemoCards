@@ -150,6 +150,66 @@ class SyncApplierTest {
         assertEquals(listOf(kept.id), all.map { it.id }) // S8
     }
 
+    // Регрессия: подключение к ДРУГОМУ серверу стирало локальные колоды.
+    // Клиент просил since из чужой нумерации, новый сервер отвечал
+    // fullSync с ревизией 0 и пустым срезом — и колоды удалялись как
+    // «отсутствующие на сервере». Ревизия не может уменьшаться у сервера,
+    // который помнит нашу историю, поэтому такой ответ не авторитетен.
+    @Test
+    fun `full sync keeps locals when server revision went backwards`() = runTest {
+        val first = insertLocalDeck()
+        val second = insertLocalDeck()
+
+        applier.applyDecksResponse(
+            records = emptyList(),
+            fullSync = true,
+            revision = 0,
+            since = 7,
+        )
+
+        val all = db.deckDao().getDecksIncludingDeleted().map { it.id }.toSet()
+        assertEquals(
+            "Пустой срез сервера с меньшей ревизией не доказывает удаление",
+            setOf(first.id, second.id),
+            all,
+        )
+    }
+
+    @Test
+    fun `full sync keeps cards when server revision went backwards`() = runTest {
+        val deck = insertLocalDeck()
+        val card = insertLocalCard(deck.id)
+
+        applier.applyCardsResponse(
+            deckId = deck.id,
+            records = emptyList(),
+            fullSync = true,
+            revision = 0,
+            since = 4,
+        )
+
+        val all = db.cardDao().getCardsByDeckIncludingDeleted(deck.id).map { it.id }
+        assertEquals(listOf(card.id), all)
+    }
+
+    // Обратная сторона страховки: при нормальном росте ревизии полная
+    // замена потока должна работать как прежде (S8).
+    @Test
+    fun `full sync still drops locals when server revision moved forward`() = runTest {
+        val kept = insertLocalDeck()
+        insertLocalDeck() // вне ответа
+
+        applier.applyDecksResponse(
+            records = listOf(deckRecord(kept.id)),
+            fullSync = true,
+            revision = 9,
+            since = 5,
+        )
+
+        val all = db.deckDao().getDecksIncludingDeleted()
+        assertEquals(listOf(kept.id), all.map { it.id })
+    }
+
     @Test
     fun `confirmed tombstone is deleted and pending cleared on revision match`() = runTest {
         val tombstone = insertLocalDeck(isChanged = true, revision = 3, isDeleted = true)

@@ -28,6 +28,17 @@ class SyncSettingsRepository(
     private val api: SyncApi,
     private val settingsStorage: SyncSettingsStorage,
     private val tokenStorage: TokenStorage,
+    /**
+     * Сброс состояния синхронизации при подключении к ДРУГОМУ серверу:
+     * ревизии потоков обнуляются, локальные записи помечаются к отправке.
+     *
+     * Ревизии выдаёт сервер, и для нового сервера они бессмысленны. Без
+     * сброса клиент просит `since` из чужой нумерации, не находит что
+     * отправить (всё подтверждено прежним сервером) и получает fullSync
+     * с пустым срезом — после чего удаляет локальные записи как
+     * «отсутствующие на сервере». Так на эмуляторе пропали все колоды.
+     */
+    private val onServerChanged: suspend () -> Unit = {},
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -89,6 +100,13 @@ class SyncSettingsRepository(
                             refreshToken = tokens.refreshToken,
                         ),
                     )
+                    // Сервер сменился — состояние синхронизации от прежнего
+                    // больше не действительно. Сбрасываем ДО connect(),
+                    // пока прежний адрес ещё доступен для сравнения.
+                    val previous = settingsStorage.serverAddress()
+                    if (previous != normalize(address)) {
+                        onServerChanged()
+                    }
                     // connect() фиксирует адрес, состояние «подключено» и
                     // включает флаг синхронизации (T18).
                     settingsStorage.connect(normalize(address))

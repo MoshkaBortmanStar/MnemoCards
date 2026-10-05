@@ -118,6 +118,7 @@ class SyncEngine(
                 fullSync = response.fullSync,
                 revision = response.revision,
                 snapshot = snapshot,
+                since = since,
             )
         }
     }
@@ -152,6 +153,7 @@ class SyncEngine(
                     fullSync = response.fullSync,
                     revision = response.revision,
                     snapshot = snapshot,
+                    since = since,
                 )
             }
         } catch (abort: SyncAbort) {

@@ -147,6 +147,14 @@ interface CardDao {
     suspend fun getPendingCards(deckId: String): List<CardEntity>
 
     /**
+     * Пометить все карточки как требующие отправки — парная к
+     * [DeckDao.markAllDecksChanged], по той же причине: новый сервер
+     * о локальных карточках не знает.
+     */
+    @Query("UPDATE cards SET isChanged = 1")
+    suspend fun markAllCardsChanged()
+
+    /**
      * Снимает признак локального изменения при совпадении счётчика правок
      * со снапшотом отправки (S9, S10). Возвращает число изменённых строк.
      */
